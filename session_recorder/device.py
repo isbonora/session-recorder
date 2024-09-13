@@ -49,6 +49,7 @@ class RemoteLogTailer:
                 logger.info(f"Attempting connection to {self.host}. Attempt {retries + 1}/{self.max_retries}")
 
                 # Establish the SSH connection using Fabric
+                # TODO: Handle input details from CLI
                 conn = Connection(
                     host=self.host,
                     port=22,
@@ -62,7 +63,11 @@ class RemoteLogTailer:
                 # Running the 'tail -f' command to stream logs
                 with conn as c:
                     logger.info("running it now")
+                    
+                    # LogHandler will take in logs from this command.
                     cfo = LogHandler()
+                    
+                    # TODO: Run either tail or docker logs command.
                     result = c.run(f"tail -f {self.log_file}", hide=False, pty=True, warn=True, out_stream=cfo)
                     logger.warning("Result: %s", result)
 
@@ -102,21 +107,83 @@ class RemoteLogTailer:
             self.log_thread.join()
             logger.info("Log tailing thread has been joined and completed.")
     
-    
-    def parse_log_line(self, log_line):
+class LogHandler:
+    """
+    Custom file-like object that handles Logs from the SSH connection run command.
+    """
+    # TODO: Tests for the LogHandler class
+
+    def __init__(self):
+        self.buffer = []
+        self.is_open = True
+        self.partial_line = ""
+        
+    def write(self, string):
         """
-        Parses a log line and extracts relevant information.
-        
-        Args:
-            log_line (str): A single line from the log file.
-        
-        Returns:
-            dict: A dictionary containing parsed log information.
+        The `write()` method receives the data to be written to the file-like object.
+        This simulates the process of writing to a file or logging system.
         """
-        # Implement your log parsing logic here
         
-        return {"timestamp": "2021-01-01 12:00:00", "message": log_line}
+        # print string length in bytes
+        logger.info(f"Received {len(string)} bytes of data")
+        
+        # Combine the partial line with the new string
+        string = self.partial_line + string
+        self.partial_line = ""
+        
+        # Here we're simulating writing to a log system or file.
+        # In this example, we're appending data to an in-memory list.
+        string_split = string.split("\n")
+        
+        # If the last line is incomplete, store it in partial_line
+        if not string.endswith("\n"):
+            self.partial_line = string_split.pop()
+        
+        if len(string_split) > 0:
+            self.buffer.extend(string_split)
+
+    def flush(self): 
+        """
+        Flush any buffered data. Called after the command this time runs or the buffered result is full (1000 charecters).
+        """
+        for line in self.buffer:
+            parsed_line = self.parse_line(line)
+            if parsed_line:
+                # Once we have a valid line, it'll be here ready to send
+                # TODO: Save to DB. Matching with timestamp of frame.
+                logger.info(f"Parsed line: {parsed_line["timestamp"]} {parsed_line["message"]}")
+
+    def parse_line(self, line):
+        """
+        Parse a line of log data and extract relevant information.
+        """
+        
+        # Applying regex to the log string
+        clean_line = self.remove_ansi_colors(line).strip()
+        
+        
+        # TODO: Support different log formats and patterns
+        #     docker logs
+        #     docker ros
+        #     docker isaac
+        
+        pattern = r'(?P<timestamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}) (?P<level>\w+) (?P<message>.+)'
+        
+        match = re.match(pattern, clean_line)
+        if match:
+            return match.groupdict()
+        return None
+
+    def remove_ansi_colors(self, string):
+        """
+        Remove ANSI color codes from a string.
+        """
+        ansi_escape = re.compile(r'\x1B[@-_][0-?]*[ -/]*[@-~]')
+        return ansi_escape.sub('', string)
     
+    
+    
+
 
 # Example usage from another file
 if __name__ == "__main__":
@@ -151,78 +218,3 @@ if __name__ == "__main__":
 
     # Optionally, wait for the log tailing thread to finish (not necessary for daemon threads)
     # log_tailer.join_log_thread()
-    
-    
-    
-class LogHandler:
-    """
-    Custom file-like object that implements the write method and simulates
-    writing to a log, file, or in-memory storage.
-    """
-
-    def __init__(self):
-        # In this case, we'll store written data in a list to simulate a buffer
-        self.buffer = []
-        self.is_open = True
-        self.partial_line = ""
-        
-    def write(self, string):
-        """
-        The `write()` method receives the data to be written to the file-like object.
-        This simulates the process of writing to a file or logging system.
-        """
-        
-        # print string length in bytes
-        logger.info(f"Received {len(string)} bytes of data")
-        
-        # Combine the partial line with the new string
-        string = self.partial_line + string
-        self.partial_line = ""
-        
-        # Here we're simulating writing to a log system or file.
-        # In this example, we're appending data to an in-memory list.
-        string_split = string.split("\n")
-        
-        # If the last line is incomplete, store it in partial_line
-        if not string.endswith("\n"):
-            self.partial_line = string_split.pop()
-        
-        if len(string_split) > 0:
-            self.buffer.extend(string_split)
-
-    def flush(self): 
-        """
-        Flush any buffered data. Since we're using an in-memory list in this example,
-        there's no need for flushing, but we include this method for compatibility.
-        """
-        logger.info("Flushing buffer...")
-        # Example of how you might handle flushing, depending on the destination.
-        # If this were a file, you'd flush the content to disk here.
-        
-        for line in self.buffer:
-            parsed_line = self.parse_line(line)
-            if parsed_line:
-                # Once we have a valid line, it'll be here ready to send
-                logger.info(f"Parsed line: {parsed_line["timestamp"]} {parsed_line["message"]}")
-
-    def parse_line(self, line):
-        """
-        Parse a line of log data and extract relevant information.
-        """
-        
-        # Applying regex to the log string
-        clean_line = self.remove_ansi_colors(line).strip()
-        
-        pattern = r'(?P<timestamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}) (?P<level>\w+) (?P<message>.+)'
-        
-        match = re.match(pattern, clean_line)
-        if match:
-            return match.groupdict()
-        return None
-
-    def remove_ansi_colors(self, string):
-        """
-        Remove ANSI color codes from a string.
-        """
-        ansi_escape = re.compile(r'\x1B[@-_][0-?]*[ -/]*[@-~]')
-        return ansi_escape.sub('', string)
