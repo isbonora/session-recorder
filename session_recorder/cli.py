@@ -4,6 +4,7 @@ import sys
 import time
 
 from session_recorder.device import RemoteLogTailer
+from session_recorder.store import DatabaseStorage
 
 @click.group()
 @click.version_option()
@@ -22,6 +23,7 @@ def cli():
 def record(session_name, target):
     "Begin recording a session"
     
+    db = DatabaseStorage()
     
     # Create the RemoteLogTailer instance
     log_tailer = RemoteLogTailer(
@@ -29,6 +31,7 @@ def record(session_name, target):
         user="iw",
         password="inno2018",
         log_file="str_logforge/local_output.log",
+        db=db
     )
 
     # Start the log tailing in a separate thread

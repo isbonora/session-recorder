@@ -5,7 +5,11 @@ from loguru import logger
 from invoke.exceptions import UnexpectedExit
 from paramiko.ssh_exception import SSHException
 
+from datetime import datetime, timezone
+
 import re
+
+import hashlib
 
 class RemoteLogTailer:
     """
@@ -14,7 +18,7 @@ class RemoteLogTailer:
     connections and runs the tailing operation in a separate thread.
     """
     
-    def __init__(self, host, user, password, log_file, max_retries=5, keepalive_interval=30):
+    def __init__(self, host, user, password, log_file, db, max_retries=5, keepalive_interval=30):
         """
         Initializes the RemoteLogTailer class.
         
@@ -35,6 +39,8 @@ class RemoteLogTailer:
         self.keepalive_interval = keepalive_interval
         self.backoff_time = 5  # Initial backoff time for retries
         self.log_thread = None
+        self.db = db
+        
 
 
     def run_tail_f_logs(self):
@@ -60,20 +66,25 @@ class RemoteLogTailer:
 
                 logger.info(f"Connected to {self.host}. Running tail -f on {self.log_file}")
 
-                # Running the 'tail -f' command to stream logs
-                with conn as c:
-                    logger.info("running it now")
-                    
-                    # LogHandler will take in logs from this command.
-                    cfo = LogHandler()
-                    
-                    # TODO: Run either tail or docker logs command.
-                    result = c.run(f"tail -f {self.log_file}", hide=False, pty=True, warn=True, out_stream=cfo)
-                    logger.warning("Result: %s", result)
+               # Running the 'tail -f' command to stream logs
+                while True:  # Keep trying to run the command even after disconnection
+                    try:
+                        with conn as c:
+                            # LogHandler will take in logs from this command.
+                            cfo = LogHandler(self.db)
 
-                break  # Exit loop after a successful connection
+                            result = c.run(
+                                f"tail -f {self.log_file}", hide=False, pty=True, warn=True, out_stream=cfo
+                            )
+                            logger.warning("Result: %s", result)
+                    except (SSHException, TimeoutError, ConnectionError, UnexpectedExit) as e:
+                        logger.error(f"Connection lost: {e}. Reconnecting...")
+                        time.sleep(self.backoff_time)  # Wait a bit before reconnecting
+                        self.backoff_time = min(self.backoff_time * 2, 60)  # Exponential backoff, capped at 60 seconds
 
-            except (SSHException, UnexpectedExit) as e:
+
+
+            except (SSHException, TimeoutError, ConnectionError, UnexpectedExit) as e:
                 retries += 1
                 logger.error(f"Connection failed: {e}. Retrying in {self.backoff_time} seconds...")
                 time.sleep(self.backoff_time)
@@ -113,10 +124,12 @@ class LogHandler:
     """
     # TODO: Tests for the LogHandler class
 
-    def __init__(self):
+    def __init__(self, db):
         self.buffer = []
         self.is_open = True
         self.partial_line = ""
+        self.db = db
+        self.inserted_hashes = []
         
     def write(self, string):
         """
@@ -148,10 +161,25 @@ class LogHandler:
         """
         for line in self.buffer:
             parsed_line = self.parse_line(line)
+            
+            # Create a hash from the parsed line
+
             if parsed_line:
+                line_hash = hashlib.md5(line.encode()).hexdigest()
+                if line_hash in self.inserted_hashes:
+                    logger.error(f"Duplicate line: {parsed_line["timestamp"]} {parsed_line["message"]}")
+                    break
+                self.inserted_hashes.append(line_hash)
                 # Once we have a valid line, it'll be here ready to send
                 # TODO: Save to DB. Matching with timestamp of frame.
+                host_timestamp = datetime.now(timezone.utc)
+                timestamp = datetime.strptime(parsed_line["timestamp"], "%Y-%m-%d %H:%M:%S.%f")
+                
+                self.db.insert_log(0, timestamp, host_timestamp, parsed_line["level"], parsed_line["message"])
+                
                 logger.info(f"Parsed line: {parsed_line["timestamp"]} {parsed_line["message"]}")
+        
+        self.buffer = []
 
     def parse_line(self, line):
         """
