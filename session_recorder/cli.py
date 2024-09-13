@@ -25,10 +25,10 @@ def record(session_name, target):
     
     # Create the RemoteLogTailer instance
     log_tailer = RemoteLogTailer(
-        host="localhost",
-        user="root",
-        password="password",
-        log_file="output.log",
+        host="designpi.local",
+        user="iw",
+        password="inno2018",
+        log_file="str_logforge/local_output.log",
     )
 
     # Start the log tailing in a separate thread

@@ -51,7 +51,7 @@ class RemoteLogTailer:
                 # Establish the SSH connection using Fabric
                 conn = Connection(
                     host=self.host,
-                    port=2222,
+                    port=22,
                     user=self.user,
                     connect_kwargs={"password": self.password},
                     connect_timeout=10,  # Timeout for connection
@@ -64,16 +64,7 @@ class RemoteLogTailer:
                     logger.info("running it now")
                     cfo = LogHandler()
                     result = c.run(f"tail -f {self.log_file}", hide=False, pty=True, warn=True, out_stream=cfo)
-                    logger.info("running it now")
-                    for line in result.stdout:
-                        log_line = line.strip()
-                        
-                        if log_line:
-                            logger.info(f"Received log: {log_line}")
-                            
-                            parsed_log_line = self.parse_log_line(log_line)
-                            
-                            print(parsed_log_line)  # For demonstration purposes
+                    logger.warning("Result: %s", result)
 
                 break  # Exit loop after a successful connection
 
@@ -173,28 +164,33 @@ class LogHandler:
         # In this case, we'll store written data in a list to simulate a buffer
         self.buffer = []
         self.is_open = True
+        self.partial_line = ""
         
-
     def write(self, string):
         """
         The `write()` method receives the data to be written to the file-like object.
         This simulates the process of writing to a file or logging system.
         """
+        
+        # print string length in bytes
+        logger.info(f"Received {len(string)} bytes of data")
+        
+        # Combine the partial line with the new string
+        string = self.partial_line + string
+        self.partial_line = ""
+        
         # Here we're simulating writing to a log system or file.
         # In this example, we're appending data to an in-memory list.
-        if string:
-            for line in string.split("\n"):
-                parsed_line = self.parse_line(line)
-                
-    def parse_line(self, line):
-        """
-        Parse a line of log data and extract relevant information.
-        """
-        # Applying regex to the log string
-        logger.info(f"Received log: {line}")
-        return {"timestamp": "2021-01-01 12:00:00", "level": "error", "message": line}
+        string_split = string.split("\n")
+        
+        # If the last line is incomplete, store it in partial_line
+        if not string.endswith("\n"):
+            self.partial_line = string_split.pop()
+        
+        if len(string_split) > 0:
+            self.buffer.extend(string_split)
 
-    def flush(self):
+    def flush(self): 
         """
         Flush any buffered data. Since we're using an in-memory list in this example,
         there's no need for flushing, but we include this method for compatibility.
@@ -202,3 +198,31 @@ class LogHandler:
         logger.info("Flushing buffer...")
         # Example of how you might handle flushing, depending on the destination.
         # If this were a file, you'd flush the content to disk here.
+        
+        for line in self.buffer:
+            parsed_line = self.parse_line(line)
+            if parsed_line:
+                # Once we have a valid line, it'll be here ready to send
+                logger.info(f"Parsed line: {parsed_line["timestamp"]} {parsed_line["message"]}")
+
+    def parse_line(self, line):
+        """
+        Parse a line of log data and extract relevant information.
+        """
+        
+        # Applying regex to the log string
+        clean_line = self.remove_ansi_colors(line).strip()
+        
+        pattern = r'(?P<timestamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}) (?P<level>\w+) (?P<message>.+)'
+        
+        match = re.match(pattern, clean_line)
+        if match:
+            return match.groupdict()
+        return None
+
+    def remove_ansi_colors(self, string):
+        """
+        Remove ANSI color codes from a string.
+        """
+        ansi_escape = re.compile(r'\x1B[@-_][0-?]*[ -/]*[@-~]')
+        return ansi_escape.sub('', string)
