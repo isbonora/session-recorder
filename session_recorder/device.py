@@ -2,14 +2,12 @@ import threading
 import time
 from fabric import Connection
 from loguru import logger
-from invoke.exceptions import UnexpectedExit
+from invoke.exceptions import UnexpectedExit, CommandTimedOut
 from paramiko.ssh_exception import SSHException
-
 from datetime import datetime, timezone
-
+import hashlib
 import re
 
-import hashlib
 
 class RemoteLogTailer:
     """
@@ -40,83 +38,132 @@ class RemoteLogTailer:
         self.backoff_time = 5  # Initial backoff time for retries
         self.log_thread = None
         self.db = db
-        
+        self.max_retries = max_retries
+        self.heartbeat_interval = 2
+        self.backoff_time = 5  # Initial backoff time for retries
+        self.log_thread = None
+        self.heartbeat_thread = None
+        self.heartbeat_active = False
+        self.conn = None  # Holds the connection object
+        self.tail_active = False
 
-
-    def run_tail_f_logs(self):
+    def establish_connection(self):
         """
-        Connects to the remote server and starts tailing the specified log file.
-        If the connection fails, it retries using exponential backoff.
+        Establishes the SSH connection to the remote host.
         """
         retries = 0
-
         while retries < self.max_retries:
             try:
                 logger.info(f"Attempting connection to {self.host}. Attempt {retries + 1}/{self.max_retries}")
-
-                # Establish the SSH connection using Fabric
-                # TODO: Handle input details from CLI
-                conn = Connection(
+                self.conn = Connection(
                     host=self.host,
                     port=22,
                     user=self.user,
                     connect_kwargs={"password": self.password},
-                    connect_timeout=10,  # Timeout for connection
+                    connect_timeout=10,
                 )
-
-                logger.info(f"Connected to {self.host}. Running tail -f on {self.log_file}")
-
-               # Running the 'tail -f' command to stream logs
-                while True:  # Keep trying to run the command even after disconnection
-                    try:
-                        with conn as c:
-                            # LogHandler will take in logs from this command.
-                            cfo = LogHandler(self.db)
-
-                            result = c.run(
-                                f"tail -f {self.log_file}", hide=False, pty=True, warn=True, out_stream=cfo
-                            )
-                            logger.warning("Result: %s", result)
-                    except (SSHException, TimeoutError, ConnectionError, UnexpectedExit) as e:
-                        logger.error(f"Connection lost: {e}. Reconnecting...")
-                        time.sleep(self.backoff_time)  # Wait a bit before reconnecting
-                        self.backoff_time = min(self.backoff_time * 2, 60)  # Exponential backoff, capped at 60 seconds
-
-
-
+                logger.info(f"Successfully connected to {self.host}.")
+                return True
             except (SSHException, TimeoutError, ConnectionError, UnexpectedExit) as e:
                 retries += 1
                 logger.error(f"Connection failed: {e}. Retrying in {self.backoff_time} seconds...")
                 time.sleep(self.backoff_time)
-                self.backoff_time *= 2  # Exponential backoff
+                self.backoff_time *= 2
+        return False
 
-        if retries == self.max_retries:
-            logger.error(f"Failed to connect to {self.host} after {self.max_retries} attempts.")
+    def run_tail_f_logs(self):
+        """
+        Runs the tail -f command on the remote host.
+        """
+        self.tail_active = True
+        while self.tail_active:
+            try:
+                if self.conn:
+                    logger.info(f"Running tail -f on {self.log_file}")
+                    with self.conn as c:
+                        cfo = LogHandler(self.db)
+                        c.run(f"tail -f {self.log_file}", hide=False, pty=True, warn=True, out_stream=cfo)
+                else:
+                    raise ConnectionError("SSH connection is not established.")
+            except (SSHException, TimeoutError, ConnectionError, UnexpectedExit) as e:
+                logger.error(f"Command execution failed: {e}. Re-establishing connection and restarting command...")
+                time.sleep(self.backoff_time)
+                self.establish_connection()
 
-    def start_log_thread(self):
+    def heartbeat(self):
         """
-        Starts the log tailing operation in a separate daemon thread.
-        This allows the main program to continue while logs are being collected.
+        Periodically checks the connection by running a lightweight command like 'echo'.
+        If the command fails, it triggers a reconnection and resets the log tailing.
         """
-        if self.log_thread and self.log_thread.is_alive():
-            logger.warning("Log thread is already running.")
+        while self.heartbeat_active:
+            try:
+                if self.conn:
+                    logger.info("Sending heartbeat...")
+                    result = self.conn.run("echo heartbeat", hide=True, warn=True, timeout=1)
+                    if result.failed:
+                        raise ConnectionError("Heartbeat command failed.")
+                else:
+                    logger.warning("Connection is not established.")
+                    self.establish_connection()
+
+                logger.info("Heartbeat successful. Connection is alive.")
+            except (SSHException, TimeoutError, ConnectionError, UnexpectedExit, OSError, CommandTimedOut) as e:
+                logger.error(f"Heartbeat failed: {e}. Reconnecting and restarting tail...")
+
+                # Handle specific socket error for unreachable hosts
+                if isinstance(e, OSError) and e.errno == 65:
+                    logger.error("No route to host detected. Will retry with exponential backoff.")
+                
+                # Stop the tailing command and reconnect
+                self.tail_active = False  
+                time.sleep(self.backoff_time)
+                self.establish_connection()
+                self.restart_tail()  # Restart the tail
+
+            time.sleep(self.heartbeat_interval)
+
+
+    def restart_tail(self):
+        """
+        Restarts the tail -f log command after a connection failure.
+        """
+        if not self.tail_active:
+            self.run_tail_f_logs()  # Restart log tailing if it's not active
+
+    def start_threads(self):
+        """
+        Starts the log tailing operation and heartbeat checks in separate threads.
+        """
+        # Establish connection before starting the threads
+        if not self.establish_connection():
+            logger.error("Failed to establish initial connection.")
             return
 
-        self.log_thread = threading.Thread(
-            target=self.run_tail_f_logs,
-            daemon=True  # Ensures the thread exits when the main program exits
-        )
+        # Start the log tailing thread
+        self.log_thread = threading.Thread(target=self.run_tail_f_logs, daemon=True)
         self.log_thread.start()
-        logger.info("Started log tailing thread.")
 
-    def join_log_thread(self):
+        # Start the heartbeat thread
+        self.heartbeat_active = True
+        self.heartbeat_thread = threading.Thread(target=self.heartbeat, daemon=True)
+        self.heartbeat_thread.start()
+
+        logger.info("Started log tailing and heartbeat threads.")
+
+    def stop(self):
         """
-        Joins the log tailing thread, blocking until the thread terminates.
-        Use this for clean shutdown or waiting for thread completion.
+        Stops the log tailing and heartbeat operations.
         """
+        self.heartbeat_active = False
+        self.tail_active = False
         if self.log_thread:
             self.log_thread.join()
-            logger.info("Log tailing thread has been joined and completed.")
+        if self.heartbeat_thread:
+            self.heartbeat_thread.join()
+        if self.conn:
+            self.conn.close()
+        logger.info("Log tailing and heartbeat threads stopped.")
+
     
 class LogHandler:
     """

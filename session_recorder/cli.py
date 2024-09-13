@@ -34,8 +34,8 @@ def record(session_name, target):
         db=db
     )
 
-    # Start the log tailing in a separate thread
-    log_tailer.start_log_thread()
+    # Start the log tailing in a separ
+    log_tailer.start_threads()
 
     # Simulating main program loop
     try:
