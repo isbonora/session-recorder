@@ -219,6 +219,21 @@ class DatabaseStorage:
             session.rollback()
         finally:
             session.close()
+            
+    def get_latest_log(self):
+        """
+        Get the latest log entry from the database.
+        """
+        session = self.Session()
+        try:
+            log = session.query(Log).order_by(Log.log_id.desc()).first()
+            if log:
+                logger.info(f"Latest Log: {log.message}")
+            return log
+        except Exception as e:
+            logger.error(f"Error getting latest log: {e}")
+        finally:
+            session.close()
 
 # Example of how to use this class in separate threads
 def frame_writer(db):
