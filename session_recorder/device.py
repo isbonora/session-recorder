@@ -60,7 +60,7 @@ class RemoteLogTailer:
                     port=22,
                     user=self.user,
                     connect_kwargs={"password": self.password},
-                    connect_timeout=10,
+                    connect_timeout=3,
                 )
                 logger.info(f"Successfully connected to {self.host}.")
                 return True
@@ -91,15 +91,34 @@ class RemoteLogTailer:
                 self.establish_connection()
 
     def heartbeat(self):
+        
+        def run_command_with_timeout(conn, command, timeout):
+            result = [None]
+            def target():
+                try:
+                    result[0] = conn.run(command, hide=True, warn=True, timeout=timeout)
+                except Exception as e:
+                    result[0] = e
+
+            thread = threading.Thread(target=target)
+            thread.start()
+            thread.join(timeout)
+            if thread.is_alive():
+                return ConnectionError("Command timed out")
+            return result[0]
+        
         """
         Periodically checks the connection by running a lightweight command like 'echo'.
         If the command fails, it triggers a reconnection and resets the log tailing.
         """
+        # FIXME: doesn't restart after it runs once
         while self.heartbeat_active:
             try:
                 if self.conn:
                     logger.info("Sending heartbeat...")
-                    result = self.conn.run("echo heartbeat", hide=True, warn=True, timeout=1)
+                    result = run_command_with_timeout(self.conn, "echo heartbeat", 3)
+                    if isinstance(result, Exception):
+                        raise result
                     if result.failed:
                         raise ConnectionError("Heartbeat command failed.")
                 else:
@@ -107,7 +126,7 @@ class RemoteLogTailer:
                     self.establish_connection()
 
                 logger.info("Heartbeat successful. Connection is alive.")
-            except (SSHException, TimeoutError, ConnectionError, UnexpectedExit, OSError, CommandTimedOut) as e:
+            except (SSHException, TimeoutError, ConnectionError, UnexpectedExit, OSError, CommandTimedOut, EOFError) as e:
                 logger.error(f"Heartbeat failed: {e}. Reconnecting and restarting tail...")
 
                 # Handle specific socket error for unreachable hosts
@@ -119,16 +138,19 @@ class RemoteLogTailer:
                 time.sleep(self.backoff_time)
                 self.establish_connection()
                 self.restart_tail()  # Restart the tail
+            finally:
 
-            time.sleep(self.heartbeat_interval)
-
+                time.sleep(self.heartbeat_interval)
+        logger.error("Heartbeat thread stopped.")
 
     def restart_tail(self):
         """
         Restarts the tail -f log command after a connection failure.
         """
         if not self.tail_active:
-            self.run_tail_f_logs()  # Restart log tailing if it's not active
+            self.log_thread = None
+            self.log_thread = threading.Thread(target=self.run_tail_f_logs, daemon=True)
+            self.log_thread.start()
 
     def start_threads(self):
         """
