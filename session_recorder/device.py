@@ -74,6 +74,9 @@ class RemoteLogTailer:
     def run_tail_f_logs(self):
         """
         Runs the tail -f command on the remote host.
+        TODO: Setup to handle tail -f & docker logs -f commands.
+        TODO: Let me adjust how many it returns on first load. Default is 10, i want 50 if we have to restart the conneciton.
+        TODO: Fix "Oops, unhandled type 3 ('unimplemented')" error. Happens on startup only occasionally.
         """
         self.tail_active = True
         while self.tail_active:
@@ -91,7 +94,11 @@ class RemoteLogTailer:
                 self.establish_connection()
 
     def heartbeat(self):
-        
+        """
+        Runs a lightweight command periodically to check the SSH connection.
+        The timeout on .run doesn't work in my usecase so I had to implement a custom timeout function.
+        FIXME: Fails sometimes on startup and restarts the main thread.
+        """
         def run_command_with_timeout(conn, command, timeout):
             result = [None]
             def target():
@@ -111,7 +118,6 @@ class RemoteLogTailer:
         Periodically checks the connection by running a lightweight command like 'echo'.
         If the command fails, it triggers a reconnection and resets the log tailing.
         """
-        # FIXME: doesn't restart after it runs once
         while self.heartbeat_active:
             try:
                 if self.conn:
@@ -129,23 +135,20 @@ class RemoteLogTailer:
             except (SSHException, TimeoutError, ConnectionError, UnexpectedExit, OSError, CommandTimedOut, EOFError) as e:
                 logger.error(f"Heartbeat failed: {e}. Reconnecting and restarting tail...")
 
-                # Handle specific socket error for unreachable hosts
-                if isinstance(e, OSError) and e.errno == 65:
-                    logger.error("No route to host detected. Will retry with exponential backoff.")
-                
                 # Stop the tailing command and reconnect
                 self.tail_active = False  
                 time.sleep(self.backoff_time)
                 self.establish_connection()
                 self.restart_tail()  # Restart the tail
+                
             finally:
-
                 time.sleep(self.heartbeat_interval)
+        # It should never reach here.
         logger.error("Heartbeat thread stopped.")
 
     def restart_tail(self):
         """
-        Restarts the tail -f log command after a connection failure.
+        Restarts the tail -f log command thread after a connection failure.
         """
         if not self.tail_active:
             self.log_thread = None
@@ -190,15 +193,16 @@ class RemoteLogTailer:
 class LogHandler:
     """
     Custom file-like object that handles Logs from the SSH connection run command.
+    TODO: Handle duplicates. Rolling last imported timestamp and if get one that's the same or older, skip it.
+    TODO: Tests for the LogHandler class
+    TODO: Handle docker results. Make it agnostic to the log format.
     """
-    # TODO: Tests for the LogHandler class
 
     def __init__(self, db):
         self.buffer = []
         self.is_open = True
         self.partial_line = ""
         self.db = db
-        self.inserted_hashes = []
         
     def write(self, string):
         """
@@ -232,19 +236,17 @@ class LogHandler:
             parsed_line = self.parse_line(line)
             
             # Create a hash from the parsed line
-
             if parsed_line:
-                line_hash = hashlib.md5(line.encode()).hexdigest()
-                if line_hash in self.inserted_hashes:
-                    logger.error(f"Duplicate line: {parsed_line["timestamp"]} {parsed_line["message"]}")
-                    break
-                self.inserted_hashes.append(line_hash)
                 # Once we have a valid line, it'll be here ready to send
                 # TODO: Save to DB. Matching with timestamp of frame.
                 host_timestamp = datetime.now(timezone.utc)
                 timestamp = datetime.strptime(parsed_line["timestamp"], "%Y-%m-%d %H:%M:%S.%f")
                 
-                self.db.insert_log(0, timestamp, host_timestamp, parsed_line["level"], parsed_line["message"])
+                latest_log = self.db.get_latest_log().timestamp
+                
+                # Only insert the log if it's newer than the latest log in the database
+                if timestamp > latest_log:
+                    self.db.insert_log(0, timestamp, host_timestamp, parsed_line["level"], parsed_line["message"])
                 
                 logger.info(f"Parsed line: {parsed_line["timestamp"]} {parsed_line["message"]}")
         
@@ -277,9 +279,6 @@ class LogHandler:
         """
         ansi_escape = re.compile(r'\x1B[@-_][0-?]*[ -/]*[@-~]')
         return ansi_escape.sub('', string)
-    
-    
-    
 
 
 # Example usage from another file
