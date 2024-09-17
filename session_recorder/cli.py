@@ -2,9 +2,11 @@ import click
 from loguru import logger
 import sys
 import time
+import os 
+import yaml
 
 from session_recorder.device import RemoteLogTailer
-from session_recorder.store import DatabaseStorage
+from session_recorder.store import DatabaseStorage, Project
 from session_recorder.receiver import UDPPacketReceiver
 
 @click.group()
@@ -21,11 +23,16 @@ def cli():
     "--target",
     help="target ssh device. Should be full user@host:port",
 )
-def record(session_name, target):
+def record(target, session_name=None):
     "Begin recording a session"
     
-    db = DatabaseStorage()
+    # TODO: Finish linking up config file throughout
+    project = Project(session_name)
     
+    db = DatabaseStorage(project)
+    
+    logger.add(project.logfile_path, rotation="100 MB", retention="10 days", level="DEBUG")
+
     # Create the RemoteLogTailer instance
     log_tailer = RemoteLogTailer(
         host="localhost",
@@ -35,13 +42,13 @@ def record(session_name, target):
         db=db
     )
     
-    
+    # UDP Receiver Thread setup
     udp_receiver = UDPPacketReceiver(host='127.0.0.1', port=51001, database = db)
     
     # Start the receiver in a separate thread
     udp_receiver.start()
 
-    # Start the log tailing in a separ
+    # Start the log tailing in a separate threads
     log_tailer.start_threads()
 
     # Simulating main program loop

@@ -9,6 +9,9 @@ from session_recorder.receiver import TrackerObject
 
 from datetime import datetime, timezone
 
+import yaml
+import os
+
 # Base declarative class for SQLAlchemy models
 Base = declarative_base()
 
@@ -55,11 +58,15 @@ class DatabaseStorage:
     Supports writing frames, objects, events, and logs concurrently, with batch write features.
     """
 
-    def __init__(self, db_url='sqlite:///data.db'):
+    def __init__(self, project=None):
         """
         Initialize the connection to the SQLite database using SQLAlchemy connection pooling.
         """
         logger.info("Initializing database engine with connection pooling...")
+        self.db_path = project.database_path
+
+        db_url = f"sqlite:///{self.db_path}"
+        
         self.engine = create_engine(db_url, 
                                     connect_args={'check_same_thread': False},  # Thread-safe SQLite
                                     pool_size=5,  # Connection pool size
@@ -70,6 +77,7 @@ class DatabaseStorage:
 
         # Set up a scoped session for thread-safe sessions
         self.Session = scoped_session(sessionmaker(bind=self.engine))
+        
 
     def insert_frame(self, timestamp, frame_id=None):
         """
@@ -301,6 +309,41 @@ def log_writer(db):
     
     # Batch insert logs
     db.insert_batch_logs(log_data)
+    
+
+class Project:
+    def __init__(self, session_name=None):
+        self.config = self.init_config()
+        self.config["data"]["session_name"] = session_name
+        self.data = self.config["data"]
+        self.project_folder = self.setup_project_files(self.data["session_name"], self.data["data_dir"])
+        self.database_path = os.path.join(self.project_folder, "session_data.db")
+        self.logfile_path = os.path.join(self.project_folder, "debug_session.logs")
+        
+    def init_config(self, config="config.yml"):
+        with open('config.yml', 'r') as file:
+            config = yaml.safe_load(file)
+            if not config:
+                logger.error("No config file found")
+                sys.exit(1)
+        return config
+    
+    def setup_project_files(self, session_name=None, data_folder="data"):
+        timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%d_%H-%M-%S')
+        
+        if session_name:
+            project_folder = f"{timestamp}_{session_name}"
+        else:
+            project_folder = f"{timestamp}_session"
+        
+        if data_folder:
+            project_folder = os.path.join(data_folder, project_folder)
+            
+        os.makedirs(project_folder, exist_ok=True)
+        
+        return project_folder
+        
+
 
 if __name__ == "__main__":
     # Initialize database storage

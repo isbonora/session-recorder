@@ -1,0 +1,13 @@
+vicon:
+  host: 127.0.0.1
+  port: 51001
+
+data:
+  session_name: session
+  data_dir: data
+
+device:
+  host: localhost
+  port: 2222
+  logs_dir: output.log
+  command_type: tail
