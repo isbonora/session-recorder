@@ -1,9 +1,13 @@
 from sqlalchemy import create_engine, Column, Integer, String, Float, TIMESTAMP, ForeignKey, Text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, scoped_session
+from typing import List
 import threading
 import time
 from loguru import logger
+from session_recorder.receiver import TrackerObject
+
+from datetime import datetime, timezone
 
 # Base declarative class for SQLAlchemy models
 Base = declarative_base()
@@ -86,7 +90,6 @@ class DatabaseStorage:
             session.add(frame)
             session.commit()
             
-            logger.info(f"Inserted Frame with ID {frame.frame_id} at {timestamp}.")
             return frame.frame_id
         except Exception as e:
             logger.error(f"Error inserting frame: {e}")
@@ -112,9 +115,24 @@ class DatabaseStorage:
             )
             session.add(obj)
             session.commit()
-            logger.info(f"Inserted Object for Frame ID {frame_id}.")
         except Exception as e:
             logger.error(f"Error inserting object: {e}")
+            session.rollback()
+        finally:
+            session.close()
+            
+    def insert_frame_objects(self, frame_number, objects: List[TrackerObject]):
+        """
+        Insert multiple objects for a single frame into the database.
+        """
+        session = self.Session()
+        try:
+            frame_id = self.insert_frame(datetime.now(timezone.utc), frame_number)
+            for obj in objects:
+                self.insert_object(frame_id, obj.name, obj.translation, obj.rotation)
+            session.commit()
+        except Exception as e:
+            logger.error(f"Error inserting objects: {e}")
             session.rollback()
         finally:
             session.close()
@@ -232,6 +250,21 @@ class DatabaseStorage:
             return log
         except Exception as e:
             logger.error(f"Error getting latest log: {e}")
+        finally:
+            session.close()
+            
+    def get_latest_frame_number(self):
+        """
+        Get the latest frame number from the database.
+        """
+        session = self.Session()
+        try:
+            frame = session.query(Frame).order_by(Frame.frame_id.desc()).first()
+            if frame:
+                logger.info(f"Latest Frame ID: {frame.frame_id}")
+            return frame.frame_id
+        except Exception as e:
+            logger.error(f"Error getting latest frame number: {e}")
         finally:
             session.close()
 

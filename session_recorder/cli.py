@@ -5,6 +5,7 @@ import time
 
 from session_recorder.device import RemoteLogTailer
 from session_recorder.store import DatabaseStorage
+from session_recorder.receiver import UDPPacketReceiver
 
 @click.group()
 @click.version_option()
@@ -27,12 +28,18 @@ def record(session_name, target):
     
     # Create the RemoteLogTailer instance
     log_tailer = RemoteLogTailer(
-        host="designpi.local",
-        user="iw",
-        password="inno2018",
-        log_file="str_logforge/local_output.log",
+        host="localhost",
+        user="root",
+        password="password",
+        log_file="output.log",
         db=db
     )
+    
+    
+    udp_receiver = UDPPacketReceiver(host='127.0.0.1', port=51001, database = db)
+    
+    # Start the receiver in a separate thread
+    udp_receiver.start()
 
     # Start the log tailing in a separ
     log_tailer.start_threads()

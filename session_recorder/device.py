@@ -57,7 +57,7 @@ class RemoteLogTailer:
                 logger.info(f"Attempting connection to {self.host}. Attempt {retries + 1}/{self.max_retries}")
                 self.conn = Connection(
                     host=self.host,
-                    port=22,
+                    port=2222,
                     user=self.user,
                     connect_kwargs={"password": self.password},
                     connect_timeout=3,
@@ -242,12 +242,16 @@ class LogHandler:
                 host_timestamp = datetime.now(timezone.utc)
                 timestamp = datetime.strptime(parsed_line["timestamp"], "%Y-%m-%d %H:%M:%S.%f")
                 
-                latest_log = self.db.get_latest_log().timestamp
+                latest_log = self.db.get_latest_log()
+                latest_frame_number = self.db.get_latest_frame_number()
                 
-                # Only insert the log if it's newer than the latest log in the database
-                if timestamp > latest_log:
-                    self.db.insert_log(0, timestamp, host_timestamp, parsed_line["level"], parsed_line["message"])
+                if latest_log:
                 
+                    # Only insert the log if it's newer than the latest log in the database
+                    if timestamp > latest_log.timestamp:
+                        self.db.insert_log(latest_frame_number, timestamp, host_timestamp, parsed_line["level"], parsed_line["message"])
+                else:
+                    self.db.insert_log(latest_frame_number, timestamp, host_timestamp, parsed_line["level"], parsed_line["message"])
                 logger.info(f"Parsed line: {parsed_line["timestamp"]} {parsed_line["message"]}")
         
         self.buffer = []
