@@ -16,7 +16,7 @@ class RemoteLogTailer:
     connections and runs the tailing operation in a separate thread.
     """
     
-    def __init__(self, host, user, password, log_file, db, max_retries=5, keepalive_interval=30):
+    def __init__(self, host, user, password, log_file, db, port=22, max_retries=5, keepalive_interval=30):
         """
         Initializes the RemoteLogTailer class.
         
@@ -31,6 +31,7 @@ class RemoteLogTailer:
         """
         self.host = host
         self.user = user
+        self.port = port
         self.password = password
         self.log_file = log_file
         self.max_retries = max_retries
@@ -57,7 +58,7 @@ class RemoteLogTailer:
                 logger.info(f"Attempting connection to {self.host}. Attempt {retries + 1}/{self.max_retries}")
                 self.conn = Connection(
                     host=self.host,
-                    port=2222,
+                    port=self.port,
                     user=self.user,
                     connect_kwargs={"password": self.password},
                     connect_timeout=3,

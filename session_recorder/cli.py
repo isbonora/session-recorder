@@ -23,7 +23,12 @@ def cli():
     "--target",
     help="target ssh device. Should be full user@host:port",
 )
-def record(target, session_name=None):
+@click.option(
+    "-l",
+    "--logpath",
+    help="Which file on the host device to tail",
+)
+def record(target, logpath, session_name=None):
     "Begin recording a session"
     
     # TODO: Finish linking up config file throughout
@@ -32,11 +37,22 @@ def record(target, session_name=None):
     db = DatabaseStorage(project)
     
     logger.add(project.logfile_path, rotation="100 MB", retention="10 days", level="DEBUG")
+    
+    host = "localhost"
+    user = "root"
+    port = 22
+    log_path = logpath
+    
+    if target:
+        host = target.split('@')[1].split(':')[0]
+        user = target.split('@')[0]
+        port = target.split(':')[1]
 
     # Create the RemoteLogTailer instance
     log_tailer = RemoteLogTailer(
-        host="localhost",
-        user="root",
+        host=host,
+        user=user,
+        port=port,
         password="password",
         log_file="output.log",
         db=db
@@ -55,6 +71,8 @@ def record(target, session_name=None):
     try:
         while True:
             logger.info("Recording session...")
+            logger.debug(f"Log Thread {log_tailer.log_thread.is_alive()}, Heartbeat Thread: {log_tailer.heartbeat_thread.is_alive()}")
+            
             time.sleep(10)  # Main program continues with other tasks
     except KeyboardInterrupt:
         logger.info("Main thread interrupted. Exiting...")
