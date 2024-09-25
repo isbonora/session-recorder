@@ -53,8 +53,8 @@ def record(target, logpath, session_name=None):
         host=host,
         user=user,
         port=port,
-        password="password",
-        log_file="output.log",
+        password="inno2018",
+        log_file=log_path,
         db=db
     )
     

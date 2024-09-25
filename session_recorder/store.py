@@ -1,6 +1,5 @@
 from sqlalchemy import create_engine, Column, Integer, String, Float, TIMESTAMP, ForeignKey, Text
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, scoped_session
+from sqlalchemy.orm import sessionmaker, scoped_session, declarative_base
 from typing import List
 import threading
 import time
@@ -11,6 +10,7 @@ from datetime import datetime, timezone
 
 import yaml
 import os
+import tempfile
 
 # Base declarative class for SQLAlchemy models
 Base = declarative_base()
@@ -264,6 +264,7 @@ class DatabaseStorage:
     def get_latest_frame_number(self):
         """
         Get the latest frame number from the database.
+        TODO: Handle case where no frames exist.
         """
         session = self.Session()
         try:
@@ -312,10 +313,11 @@ def log_writer(db):
     
 
 class Project:
-    def __init__(self, session_name=None):
+    def __init__(self, session_name=None, is_temp=False):
         self.config = self.init_config()
         self.config["data"]["session_name"] = session_name
         self.data = self.config["data"]
+        self.is_temp = is_temp
         self.project_folder = self.setup_project_files(self.data["session_name"], self.data["data_dir"])
         self.database_path = os.path.join(self.project_folder, "session_data.db")
         self.logfile_path = os.path.join(self.project_folder, "debug_session.logs")
@@ -328,18 +330,21 @@ class Project:
                 sys.exit(1)
         return config
     
-    def setup_project_files(self, session_name=None, data_folder="data"):
+    def setup_project_files(self, session_name="session", data_folder="data"):
         timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%d_%H-%M-%S')
         
-        if session_name:
-            project_folder = f"{timestamp}_{session_name}"
-        else:
-            project_folder = f"{timestamp}_session"
+        project_folder = f"{timestamp}_{session_name}"
         
         if data_folder:
             project_folder = os.path.join(data_folder, project_folder)
             
-        os.makedirs(project_folder, exist_ok=True)
+        if self.is_temp:
+            logger.warning("Running in testing mode. Data will be stored in a temporary directory.")
+            temp_dir = "tests/temp"
+            os.makedirs(temp_dir, exist_ok=True)  # Ensure the temp directory exists
+            project_folder = tempfile.mkdtemp(prefix=f"{timestamp}_{session_name}", dir=temp_dir)
+        else:
+            os.makedirs(project_folder, exist_ok=True)
         
         return project_folder
         

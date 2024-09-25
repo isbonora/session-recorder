@@ -7,6 +7,7 @@ from paramiko.ssh_exception import SSHException
 from datetime import datetime, timezone
 import hashlib
 import re
+import paramiko
 
 
 class RemoteLogTailer:
@@ -36,19 +37,23 @@ class RemoteLogTailer:
         self.log_file = log_file
         self.max_retries = max_retries
         self.keepalive_interval = keepalive_interval
-        self.backoff_time = 5  # Initial backoff time for retries
+        # Initial backoff time for retries
+        self.backoff_time = 5
         self.log_thread = None
         self.db = db
         self.max_retries = max_retries
         self.heartbeat_interval = 2
-        self.backoff_time = 5  # Initial backoff time for retries
+        # Initial backoff time for retries
+        self.backoff_time = 5
         self.log_thread = None
         self.heartbeat_thread = None
         self.heartbeat_active = False
-        self.conn = None  # Holds the connection object
+        # Holds the connection object
+        self.conn = None
         self.tail_active = False
 
     def establish_connection(self):
+        paramiko.util.log_to_file("paramiko_debug.log", level="DEBUG")
         """
         Establishes the SSH connection to the remote host.
         """
@@ -60,8 +65,8 @@ class RemoteLogTailer:
                     host=self.host,
                     port=self.port,
                     user=self.user,
-                    connect_kwargs={"password": self.password},
-                    connect_timeout=3,
+                    connect_kwargs={"password": self.password, "look_for_keys": False},
+                    connect_timeout=3
                 )
                 logger.info(f"Successfully connected to {self.host}.")
                 return True
@@ -85,8 +90,12 @@ class RemoteLogTailer:
                 if self.conn:
                     logger.info(f"Running tail -f on {self.log_file}")
                     with self.conn as c:
+                        
+                        # if not c.is_connected:
+                        #     raise ConnectionError("SSH connection was lost and is not established.")
                         cfo = LogHandler(self.db)
                         c.run(f"tail -f {self.log_file}", hide=False, pty=True, warn=True, out_stream=cfo)
+                        logger.error("Tail command finished. Do something here.")
                 else:
                     raise ConnectionError("SSH connection is not established.")
             except (SSHException, TimeoutError, ConnectionError, UnexpectedExit) as e:
@@ -160,6 +169,7 @@ class RemoteLogTailer:
         """
         Starts the log tailing operation and heartbeat checks in separate threads.
         """
+        
         # Establish connection before starting the threads
         if not self.establish_connection():
             logger.error("Failed to establish initial connection.")
@@ -190,6 +200,40 @@ class RemoteLogTailer:
             self.conn.close()
         logger.info("Log tailing and heartbeat threads stopped.")
 
+class Log:
+    def __init__(self, timestamp, level: str, message: str, component: str = None):
+        if type(timestamp) == str:
+            self.timestamp = self.convert_to_datetime(timestamp)
+        else:
+            self.timestamp = timestamp
+            
+        self.level = level
+        self.message = message
+        self.component = component
+        
+    def __eq__(self, other):
+        if isinstance(other, Log):
+            return (self.timestamp == other.timestamp and
+                    self.level == other.level and
+                    self.message == other.message and
+                    self.component == other.component)
+        return False
+
+    def __repr__(self):
+        return (f"Log(timestamp={self.timestamp!r}, level={self.level!r}, "
+                f"message={self.message!r}, component={self.component!r})")
+    
+    
+    def convert_to_datetime(self, timestamp):
+        """
+        Convert a timestamp string to a datetime object.
+        """
+        try:
+            return datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S.%f")
+        except ValueError:
+            return datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%S.%f000Z")
+        except:
+            return None
     
 class LogHandler:
     """
@@ -197,6 +241,7 @@ class LogHandler:
     TODO: Handle duplicates. Rolling last imported timestamp and if get one that's the same or older, skip it.
     TODO: Tests for the LogHandler class
     TODO: Handle docker results. Make it agnostic to the log format.
+    TODO: New class of our log.
     """
 
     def __init__(self, db):
@@ -241,7 +286,7 @@ class LogHandler:
                 # Once we have a valid line, it'll be here ready to send
                 # TODO: Save to DB. Matching with timestamp of frame.
                 host_timestamp = datetime.now(timezone.utc)
-                timestamp = datetime.strptime(parsed_line["timestamp"], "%Y-%m-%d %H:%M:%S.%f")
+                timestamp = parsed_line["timestamp"]
                 
                 latest_log = self.db.get_latest_log()
                 latest_frame_number = self.db.get_latest_frame_number()
@@ -264,19 +309,47 @@ class LogHandler:
         
         # Applying regex to the log string
         clean_line = self.remove_ansi_colors(line).strip()
+
+        log_features = self.extract_log_features(clean_line)      
         
+        if not log_features:
+            logger.warning(f"Could not parse log line: {clean_line}")
+            return None
         
-        # TODO: Support different log formats and patterns
-        #     docker logs
-        #     docker ros
-        #     docker isaac
+        log = Log(log_features["timestamp"], log_features.get("level", None), log_features["message"], log_features.get("component", None))
         
-        pattern = r'(?P<timestamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}) (?P<level>\w+) (?P<message>.+)'
+        return log
         
-        match = re.match(pattern, clean_line)
-        if match:
-            return match.groupdict()
+    
+    def extract_log_features(self, log_line):
+        # TODO: Ensrue with foundires we get component as well (the bit between the brackets)
+        patterns = [
+            # Standard Isaac log pattern
+            r'(?P<timestamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}) (?P<level>\w+) (?P<message>.+)',
+            # Foundries ROS log pattern
+            r"(?P<timestamp>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z)\s\[\w+-\d+\]\s\d+\.\d+\s(?P<level>INFO|DEBUG|ERROR|WARNING)\s(?P<message>.*)",
+            # Foundries Isaac
+            r'^(?P<timestamp>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{9}Z)\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\.\d+\s+(?P<level>\w+)\s+(?P<message>.+)$', 
+            # support for partial foundries ros log line
+            r'(?P<timestamp>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z)\s\[\w+-\d+\]\s(?P<message>.*)'
+        ]
+        
+        for pattern in patterns:
+            match = re.match(pattern, log_line)
+            if match:
+                return match.groupdict()
         return None
+        
+    def convert_to_datetime(self, timestamp):
+        """
+        Convert a timestamp string to a datetime object.
+        """
+        try:
+            return datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S.%f")
+        except ValueError:
+            return datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%S.%f000Z")
+        except:
+            return None
 
     def remove_ansi_colors(self, string):
         """

@@ -11,3 +11,5 @@ venv
 *.db-*
 
 data/*
+tests/temp/*
+paramiko_debug.log
