@@ -5,7 +5,7 @@
 - [ ] Logs from Foundries/Ros
 - [ ] Fix the `type 3 ('unimplemented')` error
 - [ ] Test suite
-
+- [ ] Notifications about robot errors.
 
 # Extras
 - Explore sntp command.

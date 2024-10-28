@@ -5,22 +5,21 @@ from loguru import logger
 from invoke.exceptions import UnexpectedExit, CommandTimedOut
 from paramiko.ssh_exception import SSHException
 from datetime import datetime, timezone
-import hashlib
 import re
 import paramiko
 
 
 class RemoteLogTailer:
     """
-    This class handles connecting to a remote server via SSH, tailing a log file, 
+    This class handles connecting to a remote server via SSH, tailing a log file,
     and saving the logs to an SQLite database. It includes retry logic for robust
     connections and runs the tailing operation in a separate thread.
     """
-    
-    def __init__(self, host, user, password, log_file, db, port=22, max_retries=5, keepalive_interval=30):
+
+    def __init__(self, host, user, password, log_file, docker_container, db, port=22, max_retries=5, keepalive_interval=30):
         """
         Initializes the RemoteLogTailer class.
-        
+
         Args:
             host (str): The remote server hostname or IP.
             user (str): The SSH user.
@@ -35,6 +34,7 @@ class RemoteLogTailer:
         self.port = port
         self.password = password
         self.log_file = log_file
+        self.docker_container = docker_container
         self.max_retries = max_retries
         self.keepalive_interval = keepalive_interval
         # Initial backoff time for retries
@@ -84,17 +84,26 @@ class RemoteLogTailer:
         TODO: Let me adjust how many it returns on first load. Default is 10, i want 50 if we have to restart the conneciton.
         TODO: Fix "Oops, unhandled type 3 ('unimplemented')" error. Happens on startup only occasionally.
         """
+
+        if self.log_file:
+            logger.info(f"Running tail -f on {self.log_file}")
+            command = f"tail -f {self.log_file}"
+        else:
+            logger.info(f"Running docker logs on {self.docker_container}")
+            command = f"docker logs {self.docker_container} -f -t -n 100"
+
         self.tail_active = True
         while self.tail_active:
             try:
                 if self.conn:
-                    logger.info(f"Running tail -f on {self.log_file}")
+                    logger.info(f"Running '{command}'...")
                     with self.conn as c:
-                        
+
                         # if not c.is_connected:
                         #     raise ConnectionError("SSH connection was lost and is not established.")
+                        # TODO: Handle Docker logs -f command
                         cfo = LogHandler(self.db)
-                        c.run(f"tail -f {self.log_file}", hide=False, pty=True, warn=True, out_stream=cfo)
+                        c.run(command, hide=False, pty=True, warn=True, out_stream=cfo)
                         logger.error("Tail command finished. Do something here.")
                 else:
                     raise ConnectionError("SSH connection is not established.")
@@ -123,7 +132,7 @@ class RemoteLogTailer:
             if thread.is_alive():
                 return ConnectionError("Command timed out")
             return result[0]
-        
+
         """
         Periodically checks the connection by running a lightweight command like 'echo'.
         If the command fails, it triggers a reconnection and resets the log tailing.
@@ -146,11 +155,11 @@ class RemoteLogTailer:
                 logger.error(f"Heartbeat failed: {e}. Reconnecting and restarting tail...")
 
                 # Stop the tailing command and reconnect
-                self.tail_active = False  
+                self.tail_active = False
                 time.sleep(self.backoff_time)
                 self.establish_connection()
                 self.restart_tail()  # Restart the tail
-                
+
             finally:
                 time.sleep(self.heartbeat_interval)
         # It should never reach here.
@@ -169,7 +178,7 @@ class RemoteLogTailer:
         """
         Starts the log tailing operation and heartbeat checks in separate threads.
         """
-        
+
         # Establish connection before starting the threads
         if not self.establish_connection():
             logger.error("Failed to establish initial connection.")
@@ -206,11 +215,11 @@ class Log:
             self.timestamp = self.convert_to_datetime(timestamp)
         else:
             self.timestamp = timestamp
-            
+
         self.level = level
         self.message = message
         self.component = component
-        
+
     def __eq__(self, other):
         if isinstance(other, Log):
             return (self.timestamp == other.timestamp and
@@ -222,19 +231,24 @@ class Log:
     def __repr__(self):
         return (f"Log(timestamp={self.timestamp!r}, level={self.level!r}, "
                 f"message={self.message!r}, component={self.component!r})")
-    
-    
+
+
     def convert_to_datetime(self, timestamp):
         """
         Convert a timestamp string to a datetime object.
         """
         try:
-            return datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S.%f")
+            # Truncate nanoseconds to microseconds
+            if '.' in timestamp:
+                timestamp, nanoseconds = timestamp.split('.')
+                nanoseconds = nanoseconds[:6]  # Keep only the first 6 digits for microseconds
+                timestamp = f"{timestamp}.{nanoseconds}"
+            return datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%S.%f")
         except ValueError:
-            return datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%S.%f000Z")
+            return datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S.%f")
         except:
             return None
-    
+
 class LogHandler:
     """
     Custom file-like object that handles Logs from the SSH connection run command.
@@ -249,78 +263,80 @@ class LogHandler:
         self.is_open = True
         self.partial_line = ""
         self.db = db
-        
+
     def write(self, string):
         """
         The `write()` method receives the data to be written to the file-like object.
         This simulates the process of writing to a file or logging system.
         """
-        
+
         # print string length in bytes
         logger.info(f"Received {len(string)} bytes of data")
-        
+
         # Combine the partial line with the new string
         string = self.partial_line + string
         self.partial_line = ""
-        
+
         # Here we're simulating writing to a log system or file.
         # In this example, we're appending data to an in-memory list.
         string_split = string.split("\n")
-        
+
         # If the last line is incomplete, store it in partial_line
         if not string.endswith("\n"):
             self.partial_line = string_split.pop()
-        
+
         if len(string_split) > 0:
             self.buffer.extend(string_split)
 
-    def flush(self): 
+    def flush(self):
         """
         Flush any buffered data. Called after the command this time runs or the buffered result is full (1000 charecters).
         """
         for line in self.buffer:
             parsed_line = self.parse_line(line)
-            
+
             # Create a hash from the parsed line
             if parsed_line:
                 # Once we have a valid line, it'll be here ready to send
                 # TODO: Save to DB. Matching with timestamp of frame.
                 host_timestamp = datetime.now(timezone.utc)
-                timestamp = parsed_line["timestamp"]
-                
+                timestamp = parsed_line.timestamp
+
                 latest_log = self.db.get_latest_log()
                 latest_frame_number = self.db.get_latest_frame_number()
-                
+
                 if latest_log:
-                
+
                     # Only insert the log if it's newer than the latest log in the database
                     if timestamp > latest_log.timestamp:
-                        self.db.insert_log(latest_frame_number, timestamp, host_timestamp, parsed_line["level"], parsed_line["message"])
+                        self.db.insert_log(latest_frame_number, timestamp, host_timestamp, parsed_line.level, parsed_line.message)
                 else:
-                    self.db.insert_log(latest_frame_number, timestamp, host_timestamp, parsed_line["level"], parsed_line["message"])
-                logger.info(f"Parsed line: {parsed_line["timestamp"]} {parsed_line["message"]}")
-        
+                    self.db.insert_log(latest_frame_number, timestamp, host_timestamp, parsed_line.level, parsed_line.message)
+                logger.info(f"Parsed line: {parsed_line.timestamp} {parsed_line.message}")
+
         self.buffer = []
 
     def parse_line(self, line):
         """
         Parse a line of log data and extract relevant information.
         """
-        
+
         # Applying regex to the log string
         clean_line = self.remove_ansi_colors(line).strip()
 
-        log_features = self.extract_log_features(clean_line)      
-        
+        log_features = self.extract_log_features(clean_line)
+
+        logger.debug(log_features)
+
         if not log_features:
             logger.warning(f"Could not parse log line: {clean_line}")
             return None
-        
+
         log = Log(log_features["timestamp"], log_features.get("level", None), log_features["message"], log_features.get("component", None))
-        
+
         return log
-        
-    
+
+
     def extract_log_features(self, log_line):
         # TODO: Ensrue with foundires we get component as well (the bit between the brackets)
         patterns = [
@@ -329,25 +345,30 @@ class LogHandler:
             # Foundries ROS log pattern
             r"(?P<timestamp>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z)\s\[\w+-\d+\]\s\d+\.\d+\s(?P<level>INFO|DEBUG|ERROR|WARNING)\s(?P<message>.*)",
             # Foundries Isaac
-            r'^(?P<timestamp>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{9}Z)\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\.\d+\s+(?P<level>\w+)\s+(?P<message>.+)$', 
+            r'^(?P<timestamp>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{9}Z)\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\.\d+\s+(?P<level>\w+)\s+(?P<message>.+)$',
             # support for partial foundries ros log line
             r'(?P<timestamp>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z)\s\[\w+-\d+\]\s(?P<message>.*)'
         ]
-        
+
         for pattern in patterns:
             match = re.match(pattern, log_line)
             if match:
                 return match.groupdict()
         return None
-        
+
     def convert_to_datetime(self, timestamp):
         """
         Convert a timestamp string to a datetime object.
         """
         try:
-            return datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S.%f")
+            # Truncate nanoseconds to microseconds
+            if '.' in timestamp:
+                timestamp, nanoseconds = timestamp.split('.')
+                nanoseconds = nanoseconds[:6]  # Keep only the first 6 digits for microseconds
+                timestamp = f"{timestamp}.{nanoseconds}"
+            return datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%S.%f")
         except ValueError:
-            return datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%S.%f000Z")
+            return datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S.%f")
         except:
             return None
 
@@ -377,6 +398,7 @@ if __name__ == "__main__":
         user=user,
         password=password,
         log_file=log_file,
+        docker_container=None,
         db_name=db_name
     )
 
