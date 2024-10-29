@@ -1,6 +1,7 @@
 import click
 from loguru import logger
 import time
+import os
 
 from session_recorder.device import RemoteLogTailer
 from session_recorder.store import DatabaseStorage, Project
@@ -34,35 +35,14 @@ def record(target, logpath=None, docker_container=None, session_name=None):
     """Begin recording a session"""
 
     # TODO: Finish linking up config file throughout
-    project = Project(session_name)
-
+    project = Project(session_name, target, logpath, docker_container, is_temp=False)
+    print(project)
     db = DatabaseStorage(project)
+
 
     logger.add(project.logfile_path, rotation="100 MB", retention="10 days", level="DEBUG")
 
-    host = "localhost"
-    user = "root"
-    port = 22
-    log_path = logpath
-    docker_container = docker_container
     log_tailer = None
-
-    if target:
-        host = target.split('@')[1].split(':')[0]
-        user = target.split('@')[0]
-        port = target.split(':')[1]
-
-
-        # Create the RemoteLogTailer instance
-        log_tailer = RemoteLogTailer(
-            host=host,
-            user=user,
-            port=port,
-            password="inno2018",
-            log_file=log_path,
-            docker_container=docker_container,
-            db=db
-        )
 
     # UDP Receiver Thread setup
     udp_receiver = UDPPacketReceiver(host='127.0.0.1', port=51001, database = db)
@@ -70,11 +50,20 @@ def record(target, logpath=None, docker_container=None, session_name=None):
     # Start the receiver in a separate thread
     udp_receiver.start()
 
-    if log_tailer:
+    if project.tail_type:
+
+        # Create the RemoteLogTailer instance
+        log_tailer = RemoteLogTailer(
+            host=project.host,
+            user=project.user,
+            port=project.port,
+            password=project.password,
+            log_file=project.log_path,
+            docker_container=project.docker_container,
+            db=db
+        )
         # Start the log tailing in a separate threads
         log_tailer.start_threads()
-    else:
-        logger.warning("No target device found (--target). Recording without logs...")
 
     # Simulating main program loop
     try:
@@ -88,3 +77,12 @@ def record(target, logpath=None, docker_container=None, session_name=None):
 
     except KeyboardInterrupt:
         logger.info("Main thread interrupted. Exiting...")
+
+
+@cli.command(name="ls")
+def list():
+    """List all recorded sessions"""
+
+    data_path = "data"
+
+    print(os.listdir(data_path))
