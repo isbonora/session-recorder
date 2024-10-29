@@ -5,7 +5,7 @@ import threading
 import time
 from loguru import logger
 from session_recorder.receiver import TrackerObject
-
+import re
 from datetime import datetime, timezone
 
 import yaml
@@ -33,7 +33,7 @@ class Object(Base):
     rotation_x = Column(Float, nullable=False)
     rotation_y = Column(Float, nullable=False)
     rotation_z = Column(Float, nullable=False)
-    
+
 # SQLAlchemy ORM mapping for the 'events' table
 class Event(Base):
     __tablename__ = 'events'
@@ -66,8 +66,8 @@ class DatabaseStorage:
         self.db_path = project.database_path
 
         db_url = f"sqlite:///{self.db_path}"
-        
-        self.engine = create_engine(db_url, 
+
+        self.engine = create_engine(db_url,
                                     connect_args={'check_same_thread': False},  # Thread-safe SQLite
                                     pool_size=5,  # Connection pool size
                                     max_overflow=10)  # Allow additional connections beyond pool size
@@ -77,12 +77,12 @@ class DatabaseStorage:
 
         # Set up a scoped session for thread-safe sessions
         self.Session = scoped_session(sessionmaker(bind=self.engine))
-        
+
 
     def insert_frame(self, timestamp, frame_id=None):
         """
         Insert a single frame into the database with an optional custom frame_id.
-        
+
         :param timestamp: The timestamp of the frame.
         :param frame_id: Optional custom frame_id. If None, the database will auto-generate.
         :return: The frame_id of the inserted frame.
@@ -90,14 +90,14 @@ class DatabaseStorage:
         session = self.Session()
         try:
             frame = Frame(timestamp=timestamp)
-            
+
             # If custom frame_id is provided, set it manually
             if frame_id is not None:
                 frame.frame_id = frame_id
-            
+
             session.add(frame)
             session.commit()
-            
+
             return frame.frame_id
         except Exception as e:
             logger.error(f"Error inserting frame: {e}")
@@ -128,7 +128,7 @@ class DatabaseStorage:
             session.rollback()
         finally:
             session.close()
-            
+
     def insert_frame_objects(self, frame_number, objects: List[TrackerObject]):
         """
         Insert multiple objects for a single frame into the database.
@@ -187,65 +187,7 @@ class DatabaseStorage:
         finally:
             session.close()
 
-    def insert_batch_frames(self, frame_data):
-        """
-        Insert a batch of frames into the database.
-        frame_data should be a list of dictionaries with 'timestamp' and optionally 'frame_id' as keys.
-        
-        Example:
-            frame_data = [
-                {'timestamp': '2024-09-12 12:00:00', 'frame_id': 1},
-                {'timestamp': '2024-09-12 12:00:01'},  # Auto-generated frame_id
-                ...
-            ]
-        """
-        session = self.Session()
-        try:
-            frames = [
-                Frame(frame_id=data.get('frame_id'), timestamp=data['timestamp']) 
-                for data in frame_data
-            ]
-            session.bulk_save_objects(frames)
-            session.commit()
-            logger.info(f"Inserted batch of {len(frame_data)} frames.")
-        except Exception as e:
-            logger.error(f"Error inserting batch frames: {e}")
-            session.rollback()
-        finally:
-            session.close()
 
-    def insert_batch_logs(self, log_data):
-        """
-        Insert a batch of logs into the database.
-        log_data should be a list of dictionaries with frame_id, timestamp, host_timestamp, level, and message as keys.
-        Example:
-            log_data = [
-                {'frame_id': 1, 'timestamp': '2024-09-12 12:00:00', 'host_timestamp': '2024-09-12 12:00:00', 'level': 'INFO', 'message': 'Log message'},
-                {'frame_id': 1, 'timestamp': '2024-09-12 12:00:01', 'host_timestamp': '2024-09-12 12:00:01', 'level': 'ERROR', 'message': 'Error message'},
-                ...
-            ]
-        """
-        session = self.Session()
-        try:
-            logs = [
-                Log(
-                    frame_id=data['frame_id'],
-                    timestamp=data['timestamp'],
-                    host_timestamp=data['host_timestamp'],
-                    level=data['level'],
-                    message=data['message']
-                )
-                for data in log_data
-            ]
-            session.bulk_save_objects(logs)
-            session.commit()
-            logger.info(f"Inserted batch of {len(log_data)} logs.")
-        except Exception as e:
-            logger.error(f"Error inserting batch logs: {e}")
-            session.rollback()
-        finally:
-            session.close()
-            
     def get_latest_log(self):
         """
         Get the latest log entry from the database.
@@ -260,11 +202,10 @@ class DatabaseStorage:
             logger.error(f"Error getting latest log: {e}")
         finally:
             session.close()
-            
+
     def get_latest_frame_number(self):
         """
         Get the latest frame number from the database.
-        TODO: Handle case where no frames exist.
         """
         session = self.Session()
         try:
@@ -277,51 +218,16 @@ class DatabaseStorage:
         finally:
             session.close()
 
-# Example of how to use this class in separate threads
-def frame_writer(db):
-    """
-    Function to simulate frame writing from one thread.
-    """
-    frame_data = []
-    for i in range(10):
-        timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
-        frame_data.append({'timestamp': timestamp})
-        time.sleep(0.1)
-    
-    # Batch insert frames
-    db.insert_batch_frames(frame_data)
-
-def log_writer(db):
-    """
-    Function to simulate log writing from another thread.
-    """
-    log_data = []
-    for i in range(20):
-        timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
-        host_timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
-        log_data.append({
-            'frame_id': 1,
-            'timestamp': timestamp,
-            'host_timestamp': host_timestamp,
-            'level': 'INFO',
-            'message': f"This is log message {i}"
-        })
-        time.sleep(0.05)
-    
-    # Batch insert logs
-    db.insert_batch_logs(log_data)
-    
-
 class Project:
     def __init__(self, session_name=None, is_temp=False):
         self.config = self.init_config()
-        self.config["data"]["session_name"] = session_name
+        self.config["data"]["session_name"] = self.ensure_safe_name(session_name)
         self.data = self.config["data"]
         self.is_temp = is_temp
         self.project_folder = self.setup_project_files(self.data["session_name"], self.data["data_dir"])
         self.database_path = os.path.join(self.project_folder, "session_data.db")
         self.logfile_path = os.path.join(self.project_folder, "debug_session.logs")
-        
+
     def init_config(self, config="config.yml"):
         with open('config.yml', 'r') as file:
             config = yaml.safe_load(file)
@@ -329,15 +235,15 @@ class Project:
                 logger.error("No config file found")
                 sys.exit(1)
         return config
-    
+
     def setup_project_files(self, session_name="session", data_folder="data"):
         timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%d_%H-%M-%S')
-        
+
         project_folder = f"{timestamp}_{session_name}"
-        
+
         if data_folder:
             project_folder = os.path.join(data_folder, project_folder)
-            
+
         if self.is_temp:
             logger.warning("Running in testing mode. Data will be stored in a temporary directory.")
             temp_dir = "tests/temp"
@@ -345,25 +251,9 @@ class Project:
             project_folder = tempfile.mkdtemp(prefix=f"{timestamp}_{session_name}", dir=temp_dir)
         else:
             os.makedirs(project_folder, exist_ok=True)
-        
+
         return project_folder
-        
 
+    def ensure_safe_name(self, name):
 
-if __name__ == "__main__":
-    # Initialize database storage
-    db = DatabaseStorage()
-
-    # Create threads for writing frames and logs
-    frame_thread = threading.Thread(target=frame_writer, args=(db,))
-    log_thread = threading.Thread(target=log_writer, args=(db,))
-
-    # Start the threads
-    frame_thread.start()
-    log_thread.start()
-
-    # Wait for both threads to complete
-    frame_thread.join()
-    log_thread.join()
-
-    logger.info("Database operations completed.")
+        return re.sub(r"[^a-zA-Z0-9_]", "_", name)

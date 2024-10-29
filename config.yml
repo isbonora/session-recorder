@@ -8,6 +8,6 @@ data:
 
 device:
   host: localhost
-  port: 2222
+  port: 22
   logs_dir: output.log
   command_type: tail

@@ -7,9 +7,13 @@ import time
 
 # Class to represent each TrackerObject as defined in your packet
 class TrackerObject:
-    def __init__(self, name_bytes, trans_x, trans_y, trans_z, rot_x, rot_y, rot_z):
+    def __init__(self, name: bytes, trans_x: float, trans_y: float, trans_z: float, rot_x: float, rot_y: float, rot_z: float):
+
+        if type(name) != bytes:
+            raise ValueError("name must be of type bytes")
+
         # Decode the object name from bytes
-        self.name = name_bytes.split(b'\x00', 1)[0].decode('utf-8')
+        self.name = name.split(b'\x00', 1)[0].decode('utf-8')
         self.trans_x = trans_x
         self.trans_y = trans_y
         self.trans_z = trans_z
@@ -28,7 +32,7 @@ class TrackerObject:
 
 # Class to handle the UDP packet reception
 class UDPPacketReceiver:
-    def __init__(self, host='localhost', port=5005, database=None):
+    def __init__(self, host='localhost', port=51005, database=None):
         self.host = host
         self.port = port
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -60,7 +64,10 @@ class UDPPacketReceiver:
         logger.info(f"Listening for UDP packets on {self.host}:{self.port}")
         while self.running:
             data, addr = self.sock.recvfrom(1024)  # Buffer size
-            self.process_packet(data)
+            frame_number, objects = self.process_packet(data)
+
+            if self.database:
+                self.database.insert_frame_objects(frame_number, objects)
 
     """
     Prints a message every 10 seconds with the number of objects received so far
@@ -101,7 +108,13 @@ class UDPPacketReceiver:
     # Process the raw packet data
     def process_packet(self, data):
 
-        self.count += 1
+        # Only captures non byte data
+        if type(data) is not bytes:
+            raise ValueError("Data must be a bytes object")
+
+        if len(data) < 80:
+            raise ValueError(f"Data length is not long enough for atleast 1 object: {len(data)} bytes")
+
         offset = 0
 
         # Frame number: first 4 bytes (unsigned int)
@@ -110,6 +123,13 @@ class UDPPacketReceiver:
 
         # ItemsInBlock: next 1 byte (unsigned char)
         items_in_block = struct.unpack_from('<B', data, offset)[0]
+
+        # Check if the first 5 bytes are integers
+        if type(frame_number) == int and type(items_in_block) == int:
+            self.count += 1
+        else:
+            raise ValueError(f"First 5 bytes are not integers. Invalid data may be received. data: {data}")
+
         offset += 1
         objects = []
         # Loop through all items
@@ -157,9 +177,7 @@ class UDPPacketReceiver:
 
 
 
-        # Log the objects to the database
-        if self.database:
-            self.database.insert_frame_objects(frame_number, objects)
+        return frame_number, objects
 
 
 
