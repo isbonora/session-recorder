@@ -69,11 +69,11 @@ class UDPPacketReceiver:
             if self.database:
                 self.database.insert_frame_objects(frame_number, objects)
 
-    """
-    Prints a message every 10 seconds with the number of objects received so far
-    Useful to see if the data is coming in as expected at an expected FPS.
-    """
     def provide_user_feedback(self):
+        """
+        Prints a message every 10 seconds with the number of objects received so far
+        Useful to see if the data is coming in as expected at an expected FPS.
+        """
         INTERVAL = 0.5 # seconds
 
         while self.running:

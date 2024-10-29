@@ -332,6 +332,11 @@ class LogHandler:
             logger.warning(f"Could not parse log line: {clean_line}")
             return None
 
+        # Fixes a scenario where the level is not set
+        # for some ros2 logs in foundries. Defaulting to DEBUG
+        if log_features.get("level", None) is None:
+            log_features["level"] = "DEBUG"
+
         log = Log(log_features["timestamp"], log_features.get("level", None), log_features["message"], log_features.get("component", None))
 
         return log
