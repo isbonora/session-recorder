@@ -57,7 +57,7 @@ def test_handle_parital_foundries_ros_log_line():
     lh = LogHandler(db)
 
     input_string = "2024-07-25T14:16:38.182418000Z [iw_brain_exe-23] is_retry: false"
-    expected_value = Log(datetime.datetime(2024, 7, 25, 14, 16, 38, 182418), None, "is_retry: false")
+    expected_value = Log(datetime.datetime(2024, 7, 25, 14, 16, 38, 182418), "DEBUG", "is_retry: false")
 
 
     assert lh.parse_line(input_string) == expected_value
@@ -80,3 +80,15 @@ def test_convert_any_possible_timestamp_to_datetime():
 
 
 # TODO: Load in log files from the robot and run the tests on them. Test if it parses everything. and misses is a fail.
+
+
+def test_remove_ansi_colors():
+    project = Project("standard_isaac", is_temp=True)
+    db = DatabaseStorage(project)
+    lh = LogHandler(db)
+
+    input_string = "[0m2024-04-09 13:38:32.723 INFO  components/cloud/AWS/components/MissionAdapterHelper.cpp@919: Updating all order actions from RUNNING to FAILED[0m"
+
+    expected_value = "2024-04-09 13:38:32.723 INFO  components/cloud/AWS/components/MissionAdapterHelper.cpp@919: Updating all order actions from RUNNING to FAILED"
+
+    assert lh.remove_ansi_colors(input_string) == expected_value

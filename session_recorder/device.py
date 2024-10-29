@@ -383,39 +383,3 @@ class LogHandler:
         """
         ansi_escape = re.compile(r'\x1B[@-_][0-?]*[ -/]*[@-~]')
         return ansi_escape.sub('', string)
-
-
-# Example usage from another file
-if __name__ == "__main__":
-    # Configure Loguru logging (you can adjust the log file size, retention, etc.)
-    logger.add("ssh_logs_{time}.log", rotation="500 MB", retention="10 days")
-
-    # Example SSH connection parameters
-    host = "example.com"
-    user = "your_username"
-    password = "password"
-    log_file = "/var/log/syslog"  # Adjust to the log file on your server
-    db_name = "logs.db"
-
-    # Create the RemoteLogTailer instance
-    log_tailer = RemoteLogTailer(
-        host=host,
-        user=user,
-        password=password,
-        log_file=log_file,
-        docker_container=None,
-        db_name=db_name
-    )
-
-    # Start the log tailing in a separate thread
-    log_tailer.start_log_thread()
-
-    # Simulating main program loop
-    try:
-        while True:
-            time.sleep(10)  # Main program continues with other tasks
-    except KeyboardInterrupt:
-        logger.info("Main thread interrupted. Exiting...")
-
-    # Optionally, wait for the log tailing thread to finish (not necessary for daemon threads)
-    # log_tailer.join_log_thread()
