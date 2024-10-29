@@ -45,22 +45,24 @@ def record(target, logpath=None, docker_container=None, session_name=None):
     port = 22
     log_path = logpath
     docker_container = docker_container
+    log_tailer = None
 
     if target:
         host = target.split('@')[1].split(':')[0]
         user = target.split('@')[0]
         port = target.split(':')[1]
 
-    # Create the RemoteLogTailer instance
-    log_tailer = RemoteLogTailer(
-        host=host,
-        user=user,
-        port=port,
-        password="inno2018",
-        log_file=log_path,
-        docker_container=docker_container,
-        db=db
-    )
+
+        # Create the RemoteLogTailer instance
+        log_tailer = RemoteLogTailer(
+            host=host,
+            user=user,
+            port=port,
+            password="inno2018",
+            log_file=log_path,
+            docker_container=docker_container,
+            db=db
+        )
 
     # UDP Receiver Thread setup
     udp_receiver = UDPPacketReceiver(host='127.0.0.1', port=51001, database = db)
@@ -68,15 +70,21 @@ def record(target, logpath=None, docker_container=None, session_name=None):
     # Start the receiver in a separate thread
     udp_receiver.start()
 
-    # Start the log tailing in a separate threads
-    log_tailer.start_threads()
+    if log_tailer:
+        # Start the log tailing in a separate threads
+        log_tailer.start_threads()
+    else:
+        logger.warning("No target device found (--target). Recording without logs...")
 
     # Simulating main program loop
     try:
         while True:
-            logger.info("Recording session...")
-            logger.debug(f"Log Thread {log_tailer.log_thread.is_alive()}, Heartbeat Thread: {log_tailer.heartbeat_thread.is_alive()}")
+            # Print the status of log thread if it's running
+            if log_tailer:
+                logger.debug(f"Log Thread {log_tailer.log_thread.is_alive()}, Heartbeat Thread: {log_tailer.heartbeat_thread.is_alive()}")
 
-            time.sleep(10)  # Main program continues with other tasks
+            # Main program continues with other tasks
+            time.sleep(10)
+
     except KeyboardInterrupt:
         logger.info("Main thread interrupted. Exiting...")

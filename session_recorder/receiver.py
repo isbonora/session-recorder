@@ -2,6 +2,8 @@ import socket
 import struct
 import threading
 from loguru import logger
+from datetime import datetime
+import time
 
 # Class to represent each TrackerObject as defined in your packet
 class TrackerObject:
@@ -33,6 +35,9 @@ class UDPPacketReceiver:
         self.sock.bind((self.host, self.port))
         self.running = True
         self.database = database
+        self.count = 0
+        self.last_count_reported = 0
+        self.last_milestone_timestamp = None
 
     # Start the packet listener in its own thread
     def start(self):
@@ -40,11 +45,15 @@ class UDPPacketReceiver:
         self.thread = threading.Thread(target=self.listen, daemon=True)
         self.thread.start()
 
+        self.reporting_thread = threading.Thread(target=self.provide_user_feedback, daemon=True)
+        self.reporting_thread.start()
+
     # Stop the listener
     def stop(self):
         logger.info("Stopping UDP listener...")
         self.running = False
         self.thread.join()
+        self.reporting_thread.join()
 
     # Listen for incoming packets and process them
     def listen(self):
@@ -53,8 +62,46 @@ class UDPPacketReceiver:
             data, addr = self.sock.recvfrom(1024)  # Buffer size
             self.process_packet(data)
 
+    """
+    Prints a message every 10 seconds with the number of objects received so far
+    Useful to see if the data is coming in as expected at an expected FPS.
+    """
+    def provide_user_feedback(self):
+        INTERVAL = 0.5 # seconds
+
+        while self.running:
+            if self.last_milestone_timestamp is None:
+                if self.count > 0:
+                    logger.info("Received first object from Vicon Tracker!")
+                    self.last_milestone_timestamp = datetime.now()
+                # TODO: Add a timeout here to stop the program if no data is received for a certain time
+            else:
+                self.last_milestone_timestamp = datetime.now()
+                # FIXME: This value may not be accurate? in testing 200fps was reported at ~160fps
+                average_fps = (self.count - self.last_count_reported) / INTERVAL
+
+                self.last_count_reported = self.count
+
+                # This weird logic here stops printing a log with invalid data.
+                # we want to wait for the system to settle after getting the first frame
+                if INTERVAL == 10:
+                    logger.info(f"Received {self.count} ({average_fps} fps avg) frames so far...")
+                    # If the FPS is low (less than 0.1), we can assume Vicon has stopped sending data.
+                    if average_fps < 0.1:
+                        logger.error("FPS is too low. Vicon may have stopped sending frames?")
+
+                INTERVAL = 10
+
+            # Wait for the next interval
+            # This is a blocking call, so the thread will sleep for the specified time
+            # Had an issue before where it was taking up too much CPU time
+            #   and the vicon data was not coming in at the right speed.
+            time.sleep(INTERVAL)
+
     # Process the raw packet data
     def process_packet(self, data):
+
+        self.count += 1
         offset = 0
 
         # Frame number: first 4 bytes (unsigned int)
@@ -105,13 +152,15 @@ class UDPPacketReceiver:
 
             # Create and log TrackerObject
             obj = TrackerObject(name_bytes, trans_x, trans_y, trans_z, rot_x, rot_y, rot_z)
-            
+
             objects.append(obj)
-        
+
+
+
         # Log the objects to the database
         if self.database:
             self.database.insert_frame_objects(frame_number, objects)
-            
+
 
 
 # Example usage
@@ -119,10 +168,10 @@ if __name__ == "__main__":
     # logger.add("udp_listener.log", rotation="10 MB", retention="10 days", level="DEBUG")
 
     udp_receiver = UDPPacketReceiver(host='127.0.0.1', port=51001)
-    
+
     # Start the receiver in a separate thread
     udp_receiver.start()
-    
+
     try:
         while True:
             pass  # Keep the main thread alive
