@@ -6,6 +6,8 @@ import os
 from session_recorder.device import RemoteLogTailer
 from session_recorder.store import DatabaseStorage, Project
 from session_recorder.receiver import UDPPacketReceiver
+import json
+import tabulate
 
 @click.group()
 @click.version_option()
@@ -85,4 +87,30 @@ def list():
 
     data_path = "data"
 
-    print(os.listdir(data_path))
+    sessions = os.listdir(data_path)
+
+    if sessions:
+        table = []
+        for session in sessions:
+            if session.startswith("."):
+                continue
+            try:
+                with open(os.path.join(data_path, session, "project_data.json")) as f:
+                    project_data = json.loads(f.read())
+
+                    table.append([session, project_data["host"], project_data["tail_type"]])
+
+            except NotADirectoryError:
+                continue
+            except FileNotFoundError:
+                logger.debug(f"Session '{session}' is missing project_data.json file. Skipping...")
+                continue
+            except json.JSONDecodeError:
+                logger.debug(f"Session '{session}' project_data.json file is corrupted. Skipping...")
+                continue
+
+        print(tabulate.tabulate(table, headers=["Session Folder", "Target Host", "Tail Type"]))
+        print(f"Total Sessions: {len(table)}")
+
+    else:
+        print("No sessions recordings found in data directory.")
