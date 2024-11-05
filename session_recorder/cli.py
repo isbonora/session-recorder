@@ -9,15 +9,15 @@ from session_recorder.receiver import UDPPacketReceiver
 import json
 import tabulate
 
+
 @click.group()
 @click.version_option()
 def cli():
     """Record Vicon and Logs from a QA session"""
 
+
 @cli.command(name="record")
-@click.argument(
-    "session_name"
-)
+@click.argument("session_name")
 @click.option(
     "-t",
     "--target",
@@ -36,24 +36,22 @@ def cli():
 def record(target, logpath=None, docker_container=None, session_name=None):
     """Begin recording a session"""
 
-    # TODO: Finish linking up config file throughout
     project = Project(session_name, target, logpath, docker_container, is_temp=False)
-    print(project)
     db = DatabaseStorage(project)
 
-
-    logger.add(project.logfile_path, rotation="100 MB", retention="10 days", level="DEBUG")
+    logger.add(
+        project.logfile_path, rotation="100 MB", retention="10 days", level="DEBUG"
+    )
 
     log_tailer = None
 
     # UDP Receiver Thread setup
-    udp_receiver = UDPPacketReceiver(host='127.0.0.1', port=51001, database = db)
+    udp_receiver = UDPPacketReceiver(host="127.0.0.1", port=51001, database=db)
 
     # Start the receiver in a separate thread
     udp_receiver.start()
 
     if project.tail_type:
-
         # Create the RemoteLogTailer instance
         log_tailer = RemoteLogTailer(
             host=project.host,
@@ -62,7 +60,7 @@ def record(target, logpath=None, docker_container=None, session_name=None):
             password=project.password,
             log_file=project.log_path,
             docker_container=project.docker_container,
-            db=db
+            db=db,
         )
         # Start the log tailing in a separate threads
         log_tailer.start_threads()
@@ -72,7 +70,9 @@ def record(target, logpath=None, docker_container=None, session_name=None):
         while True:
             # Print the status of log thread if it's running
             if log_tailer:
-                logger.debug(f"Log Thread {log_tailer.log_thread.is_alive()}, Heartbeat Thread: {log_tailer.heartbeat_thread.is_alive()}")
+                logger.debug(
+                    f"Log Thread {log_tailer.log_thread.is_alive()}, Heartbeat Thread: {log_tailer.heartbeat_thread.is_alive()}"
+                )
 
             # Main program continues with other tasks
             time.sleep(10)
@@ -98,18 +98,28 @@ def list():
                 with open(os.path.join(data_path, session, "project_data.json")) as f:
                     project_data = json.loads(f.read())
 
-                    table.append([session, project_data["host"], project_data["tail_type"]])
+                    table.append(
+                        [session, project_data["host"], project_data["tail_type"]]
+                    )
 
             except NotADirectoryError:
                 continue
             except FileNotFoundError:
-                logger.debug(f"Session '{session}' is missing project_data.json file. Skipping...")
+                logger.debug(
+                    f"Session '{session}' is missing project_data.json file. Skipping..."
+                )
                 continue
             except json.JSONDecodeError:
-                logger.debug(f"Session '{session}' project_data.json file is corrupted. Skipping...")
+                logger.debug(
+                    f"Session '{session}' project_data.json file is corrupted. Skipping..."
+                )
                 continue
 
-        print(tabulate.tabulate(table, headers=["Session Folder", "Target Host", "Tail Type"]))
+        print(
+            tabulate.tabulate(
+                table, headers=["Session Folder", "Target Host", "Tail Type"]
+            )
+        )
         print(f"Total Sessions: {len(table)}")
 
     else:

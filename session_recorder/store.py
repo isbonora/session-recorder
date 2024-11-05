@@ -1,33 +1,43 @@
-from sqlalchemy import create_engine, Column, Integer, String, Float, TIMESTAMP, ForeignKey, Text
+from sqlalchemy import (
+    create_engine,
+    Column,
+    Integer,
+    String,
+    Float,
+    TIMESTAMP,
+    ForeignKey,
+    Text,
+)
 from sqlalchemy.orm import sessionmaker, scoped_session, declarative_base
 from typing import List
-import threading
-import time
 from loguru import logger
-from session_recorder.receiver import TrackerObject
-import re
 from datetime import datetime, timezone
-
-
 import json
 import yaml
 import os
 import tempfile
+import re
+import sys
+
+from session_recorder.receiver import TrackerObject
+
 
 # Base declarative class for SQLAlchemy models
 Base = declarative_base()
 
+
 # SQLAlchemy ORM mapping for the 'frames' table
 class Frame(Base):
-    __tablename__ = 'frames'
+    __tablename__ = "frames"
     frame_id = Column(Integer, primary_key=True, autoincrement=True)
     timestamp = Column(TIMESTAMP, nullable=False)
 
+
 # SQLAlchemy ORM mapping for the 'objects' table
 class Object(Base):
-    __tablename__ = 'objects'
+    __tablename__ = "objects"
     object_id = Column(Integer, primary_key=True, autoincrement=True)
-    frame_id = Column(Integer, ForeignKey('frames.frame_id'))
+    frame_id = Column(Integer, ForeignKey("frames.frame_id"))
     name = Column(String(255), nullable=False)
     translation_x = Column(Float, nullable=False)
     translation_y = Column(Float, nullable=False)
@@ -36,23 +46,26 @@ class Object(Base):
     rotation_y = Column(Float, nullable=False)
     rotation_z = Column(Float, nullable=False)
 
+
 # SQLAlchemy ORM mapping for the 'events' table
 class Event(Base):
-    __tablename__ = 'events'
+    __tablename__ = "events"
     event_id = Column(Integer, primary_key=True, autoincrement=True)
-    frame_id = Column(Integer, ForeignKey('frames.frame_id'))
+    frame_id = Column(Integer, ForeignKey("frames.frame_id"))
     event_type = Column(String(255), nullable=False)
     event_description = Column(Text, nullable=True)
 
+
 # SQLAlchemy ORM mapping for the 'logs' table
 class Log(Base):
-    __tablename__ = 'logs'
+    __tablename__ = "logs"
     log_id = Column(Integer, primary_key=True, autoincrement=True)
-    frame_id = Column(Integer, ForeignKey('frames.frame_id'))
+    frame_id = Column(Integer, ForeignKey("frames.frame_id"))
     timestamp = Column(TIMESTAMP, nullable=False)
     host_timestamp = Column(TIMESTAMP, nullable=False)
     level = Column(String(255), nullable=False)
     message = Column(Text, nullable=False)
+
 
 class DatabaseStorage:
     """
@@ -69,17 +82,18 @@ class DatabaseStorage:
 
         db_url = f"sqlite:///{self.db_path}"
 
-        self.engine = create_engine(db_url,
-                                    connect_args={'check_same_thread': False},  # Thread-safe SQLite
-                                    pool_size=5,  # Connection pool size
-                                    max_overflow=10)  # Allow additional connections beyond pool size
+        self.engine = create_engine(
+            db_url,
+            connect_args={"check_same_thread": False},  # Thread-safe SQLite
+            pool_size=5,  # Connection pool size
+            max_overflow=10,
+        )  # Allow additional connections beyond pool size
 
         # Create tables if they do not already exist
         Base.metadata.create_all(self.engine)
 
         # Set up a scoped session for thread-safe sessions
         self.Session = scoped_session(sessionmaker(bind=self.engine))
-
 
     def insert_frame(self, timestamp, frame_id=None):
         """
@@ -121,7 +135,7 @@ class DatabaseStorage:
                 translation_z=translation[2],
                 rotation_x=rotation[0],
                 rotation_y=rotation[1],
-                rotation_z=rotation[2]
+                rotation_z=rotation[2],
             )
             session.add(obj)
             session.commit()
@@ -156,7 +170,7 @@ class DatabaseStorage:
             event = Event(
                 frame_id=frame_id,
                 event_type=event_type,
-                event_description=event_description
+                event_description=event_description,
             )
             session.add(event)
             session.commit()
@@ -178,7 +192,7 @@ class DatabaseStorage:
                 timestamp=timestamp,
                 host_timestamp=host_timestamp,
                 level=level,
-                message=message
+                message=message,
             )
             session.add(log)
             session.commit()
@@ -188,7 +202,6 @@ class DatabaseStorage:
             session.rollback()
         finally:
             session.close()
-
 
     def get_latest_log(self):
         """
@@ -220,6 +233,7 @@ class DatabaseStorage:
         finally:
             session.close()
 
+
 class Project:
     """
     Project class holds all the necessary information for a single project.
@@ -229,12 +243,22 @@ class Project:
     docker_container: The docker container id to connect to.
     is_temp: Whether the project is temporary or not. Creates a temp dir (used primarily for testing purposes)
     """
-    def __init__(self, session_name=None, target=None, device_logpath=None, docker_container=None, is_temp=False):
+
+    def __init__(
+        self,
+        session_name=None,
+        target=None,
+        device_logpath=None,
+        docker_container=None,
+        is_temp=False,
+    ):
         self.config = self.init_config()
         self.config["data"]["session_name"] = self.ensure_safe_name(session_name)
         self.data = self.config["data"]
         self.is_temp = is_temp
-        self.project_folder = self.setup_project_files(self.data["session_name"], self.data["data_dir"])
+        self.project_folder = self.setup_project_files(
+            self.data["session_name"], self.data["data_dir"]
+        )
         self.database_path = os.path.join(self.project_folder, "session_data.db")
         self.logfile_path = os.path.join(self.project_folder, "debug_session.logs")
 
@@ -253,7 +277,9 @@ class Project:
         elif self.docker_container:
             self.tail_type = "docker"
         else:
-            logger.warning("No log path or docker container provided. Disabling tailing feature.")
+            logger.warning(
+                "No log path or docker container provided. Disabling tailing feature."
+            )
             self.tail_type = None
 
         # This will save the project data to the project folder
@@ -276,7 +302,7 @@ class Project:
         """
 
     def init_config(self, config="config.yml"):
-        with open('config.yml', 'r') as file:
+        with open("config.yml", "r") as file:
             config = yaml.safe_load(file)
             if not config:
                 # TODO: Maybe create a default config file if none is found?
@@ -285,7 +311,7 @@ class Project:
         return config
 
     def setup_project_files(self, session_name="session", data_folder="data"):
-        timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%d_%H-%M-%S')
+        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
 
         project_folder = f"{timestamp}_{session_name}"
 
@@ -293,17 +319,20 @@ class Project:
             project_folder = os.path.join(data_folder, project_folder)
 
         if self.is_temp:
-            logger.warning("Running in testing mode. Data will be stored in a temporary directory.")
+            logger.warning(
+                "Running in testing mode. Data will be stored in a temporary directory."
+            )
             temp_dir = "tests/temp"
             os.makedirs(temp_dir, exist_ok=True)  # Ensure the temp directory exists
-            project_folder = tempfile.mkdtemp(prefix=f"{timestamp}_{session_name}", dir=temp_dir)
+            project_folder = tempfile.mkdtemp(
+                prefix=f"{timestamp}_{session_name}", dir=temp_dir
+            )
         else:
             os.makedirs(project_folder, exist_ok=True)
 
         return project_folder
 
     def get_ssh_config(self, target: String = None):
-
         host = self.config["device"].get("host", None)
         user = self.config["device"].get("user", None)
         port = self.config["device"].get("port", None)
@@ -312,16 +341,17 @@ class Project:
 
         # TODO: Test for valid target format
         if self.is_valid_target_host(target):
-            host = target.split('@')[1].split(':')[0]
-            user = target.split('@')[0]
-            port = target.split(':')[1]
+            host = target.split("@")[1].split(":")[0]
+            user = target.split("@")[0]
+            port = target.split(":")[1]
 
         if host is None or user is None or port is None or password is None:
-            raise ValueError("Missing SSH configuration. Please check your config file.")
+            raise ValueError(
+                "Missing SSH configuration. Please check your config file."
+            )
             sys.exit(1)
 
         return host, user, port, password
-
 
     def ensure_safe_name(self, name):
         return re.sub(r"[^a-zA-Z0-9_]", "_", name)
@@ -334,7 +364,9 @@ class Project:
 
         regex_pattern = r"^[a-zA-Z0-9_]+@[a-zA-Z0-9_]+:[0-9]+$"
         if not re.match(regex_pattern, target):
-            raise ValueError("Invalid target format. Please use the format 'user@host:port'.")
+            raise ValueError(
+                "Invalid target format. Please use the format 'user@host:port'."
+            )
             sys.exit(1)
 
         return target
@@ -353,13 +385,13 @@ class Project:
             "log_path": self.log_path,
             "docker_container": self.docker_container,
             "tail_type": self.tail_type,
-            "started_at": datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+            "started_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
         }
 
+    # TODO: Save this project data to a table within the SQLite database.
     def save_project_data(self):
         with open(os.path.join(self.project_folder, "project_data.json"), "w") as file:
             json.dump(self.get_project_data_as_dict(), file, indent=4)
-
 
     # TODO: Save this session details to a file for later review.
     def save_session(self):
