@@ -6,7 +6,8 @@ import datetime
 
 # everything loghandler
 def test_parse_standard_isaac_log_line():
-    project = Project("standard_isaac", is_temp=True)
+    project = Project()
+    project.create("standard_isaac", is_temp=True)
 
     db = DatabaseStorage(project)
     lh = LogHandler(db)
@@ -22,7 +23,8 @@ def test_parse_standard_isaac_log_line():
     assert lh.parse_line(input_string) == expected_value
 
 def test_parse_foundries_isaac_log_line():
-    project = Project("foundries_isaac", is_temp=True)
+    project = Project()
+    project.create("foundries_isaac", is_temp=True)
 
     db = DatabaseStorage(project)
     lh = LogHandler(db)
@@ -39,7 +41,8 @@ def test_parse_foundries_isaac_log_line():
 
 
 def test_parse_foundries_ros_log_line():
-    project = Project("foundries_ros", is_temp=True)
+    project = Project()
+    project.create("foundries_ros", is_temp=True)
 
     db = DatabaseStorage(project)
     lh = LogHandler(db)
@@ -51,7 +54,8 @@ def test_parse_foundries_ros_log_line():
     assert lh.parse_line(input_string) == expected_value
 
 def test_handle_parital_foundries_ros_log_line():
-    project = Project("foundries_ros", is_temp=True)
+    project = Project()
+    project.create("foundries_ros", is_temp=True)
 
     db = DatabaseStorage(project)
     lh = LogHandler(db)
@@ -63,7 +67,8 @@ def test_handle_parital_foundries_ros_log_line():
     assert lh.parse_line(input_string) == expected_value
 
 def test_convert_any_possible_timestamp_to_datetime():
-    project = Project("standard_isaac", is_temp=True)
+    project = Project()
+    project.create("standard_isaac", is_temp=True)
     db = DatabaseStorage(project)
     lh = LogHandler(db)
 
@@ -83,7 +88,8 @@ def test_convert_any_possible_timestamp_to_datetime():
 
 
 def test_remove_ansi_colors():
-    project = Project("standard_isaac", is_temp=True)
+    project = Project()
+    project.create("standard_isaac", is_temp=True)
     db = DatabaseStorage(project)
     lh = LogHandler(db)
 

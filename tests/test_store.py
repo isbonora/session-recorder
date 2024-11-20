@@ -7,22 +7,24 @@ from datetime import datetime
 
 
 def test_new_project_succesfully():
-    project = Project("test", is_temp=True)
+    project = Project()
+    project.create("test", is_temp=True)
 
-    assert os.path.exists(project.project_folder)
+    assert os.path.exists(project.session_folder)
 
 def test_new_project_config_succesfully():
     project_name = "this_is_a_test"
-    project = Project(project_name, is_temp=True)
+    project = Project()
+    project.create(project_name, is_temp=True)
 
-    assert type(project.config) == dict
     assert project.config["data"]["session_name"] == project_name
 
 def test_auto_make_safe_project_name_spaces():
     project_name_not_safe = "this is a test"
     project_name_safe = "this_is_a_test"
 
-    project = Project(project_name_not_safe, is_temp=True)
+    project = Project()
+    project.create(project_name_not_safe, is_temp=True)
 
     assert project.config["data"]["session_name"] == project_name_safe
 
@@ -30,14 +32,16 @@ def test_auto_make_safe_project_name_slashes():
     project_name_not_safe = "this/is/a/test"
     project_name_safe = "this_is_a_test"
 
-    project = Project(project_name_not_safe, is_temp=True)
+    project = Project()
+    project.create(project_name_not_safe, is_temp=True)
 
     assert project.config["data"]["session_name"] == project_name_safe
 
 
 # Database
 def test_database_storage():
-    project = Project("test", is_temp=True)
+    project = Project()
+    project.create("test", is_temp=True)
     db = DatabaseStorage(project)
 
     # ensures sqlaclhemy engine is created
@@ -50,7 +54,8 @@ def test_database_storage():
 
 
 def test_database_frames_table_has_correct_columns():
-    project = Project("test", is_temp=True)
+    project = Project()
+    project.create("test", is_temp=True)
     db = DatabaseStorage(project)
 
     assert db.engine
@@ -66,7 +71,8 @@ def test_database_frames_table_has_correct_columns():
 
 
 def test_database_objects_table_has_correct_columns():
-    project = Project("test", is_temp=True)
+    project = Project()
+    project.create("test", is_temp=True)
     db = DatabaseStorage(project)
 
     assert db.engine
@@ -88,7 +94,8 @@ def test_database_objects_table_has_correct_columns():
     assert cols[8]["name"] == "rotation_z"
 
 def test_database_events_table_has_correct_columns():
-    project = Project("test", is_temp=True)
+    project = Project()
+    project.create("test", is_temp=True)
     db = DatabaseStorage(project)
 
     assert db.engine
@@ -105,7 +112,8 @@ def test_database_events_table_has_correct_columns():
     assert cols[3]["name"] == "event_description"
 
 def test_database_logs_table_has_correct_columns():
-    project = Project("test", is_temp=True)
+    project = Project()
+    project.create("test", is_temp=True)
     db = DatabaseStorage(project)
 
     assert db.engine
@@ -125,7 +133,8 @@ def test_database_logs_table_has_correct_columns():
 
 
 def test_insert_frame():
-    project = Project("test", is_temp=True)
+    project = Project()
+    project.create("test", is_temp=True)
     db = DatabaseStorage(project)
 
     timestamp = datetime.now()
@@ -139,7 +148,8 @@ def test_insert_frame():
 
 
 def test_insert_object():
-    project = Project("test", is_temp=True)
+    project = Project()
+    project.create("test", is_temp=True)
     db = DatabaseStorage(project)
 
     timestamp = datetime.now()
@@ -152,11 +162,11 @@ def test_insert_object():
     assert session.execute(query).fetchone() == (f_id, 1, "test_object_name", 1, 2, 3, 4, 5, 6)
 
 def test_insert_event():
-    project = Project("test", is_temp=True)
+    project = Project()
+    project.create("insert_event_test", is_temp=True)
     db = DatabaseStorage(project)
 
     timestamp = datetime.now()
-    timestamp_string = timestamp.isoformat()
 
     f_id = db.insert_frame(timestamp, 1)
 
@@ -168,7 +178,8 @@ def test_insert_event():
 
 
 def test_insert_log():
-    project = Project("test", is_temp=True)
+    project = Project()
+    project.create("insert_log_test", is_temp=True)
     db = DatabaseStorage(project)
 
     timestamp = datetime.now()
@@ -183,15 +194,14 @@ def test_insert_log():
 
 
 def test_insert_multiple_objects(how_many_objects=100):
-    project = Project("test", is_temp=True)
+    project = Project()
+    project.create("insert_multi_objects_test", is_temp=True)
     db = DatabaseStorage(project)
 
     # how many objects per frame to test
     # Realistically, this number should only just a few objects 2-4
 
     frame_id = 1
-
-    timestamp = datetime.now()
 
     objects = [TrackerObject(f"test_object_name_{i}".encode(),1.0,2.0,3.0,4.0,5.0,6.0) for i in range(how_many_objects)]
 
@@ -203,7 +213,8 @@ def test_insert_multiple_objects(how_many_objects=100):
 
 
 def test_get_latest_log():
-    project = Project("test", is_temp=True)
+    project = Project()
+    project.create("get_latest_log_test", is_temp=True)
     db = DatabaseStorage(project)
 
     timestamp = datetime.now()
@@ -219,7 +230,8 @@ def test_get_latest_log():
 
 
 def test_get_latest_frame():
-    project = Project("test", is_temp=True)
+    project = Project()
+    project.create("test", is_temp=True)
     db = DatabaseStorage(project)
 
     timestamp = datetime.now()
@@ -231,8 +243,47 @@ def test_get_latest_frame():
 
 
 def test_get_latest_frame_where_frames_empty():
-    project = Project("test", is_temp=True)
+    project = Project()
+    project.create("test", is_temp=True)
     db = DatabaseStorage(project)
 
     frame = db.get_latest_frame_number()
     assert frame == None
+
+
+def test_parse_full_target_ssh_string():
+    
+    project = Project()
+    project.create("test", target="username@endpoint:1234", is_temp=True)
+    
+    assert project.target_user == "username"
+    assert project.target_host == "endpoint"
+    assert project.target_port == 1234
+
+def test_parse_full_target_ssh_string_without_port():
+    
+    project = Project()
+    project.create("test", target="username@endpoint", is_temp=True)
+    
+    assert project.target_user == "username"
+    assert project.target_host == "endpoint"
+    assert project.target_port == 22
+
+def test_parse_full_target_ssh_string_without_port_and_user():
+        
+    project = Project()
+    project.create("test", target="endpoint", is_temp=True)
+    
+    assert project.target_user == "iw"
+    assert project.target_host == "endpoint"
+    assert project.target_port == 22
+    
+def test_parse_ssh_without_input_target_string():
+            
+    project = Project()
+    project.create("test", is_temp=True)
+    
+    # should be default values
+    assert project.target_user == "iw"
+    assert project.target_host == "localhost"
+    assert project.target_port == 22

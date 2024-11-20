@@ -35,8 +35,8 @@ def cli():
 )
 def record(target, logpath=None, docker_container=None, session_name=None):
     """Begin recording a session"""
-
-    project = Project(session_name, target, logpath, docker_container, is_temp=False)
+    project = Project()
+    project = project.create(session_name, target, logpath, docker_container, is_temp=False)
     db = DatabaseStorage(project)
 
     logger.add(
@@ -58,7 +58,7 @@ def record(target, logpath=None, docker_container=None, session_name=None):
             user=project.user,
             port=project.port,
             password=project.password,
-            log_file=project.log_path,
+            log_file=project.device_log_path,
             docker_container=project.docker_container,
             db=db,
         )
@@ -117,7 +117,7 @@ def list():
 
         print(
             tabulate.tabulate(
-                table, headers=["Session Folder", "Target Host", "Tail Type"]
+                table, headers=["Session", "Target Host", "Tail Type"]
             )
         )
         print(f"Total Sessions: {len(table)}")
@@ -142,9 +142,21 @@ def export(session_name, output=None, events_only=False):
 	"""Export a session to a CSV file (DOESNT WORK YET)"""
  
 	if not output:
-		output = f"{session_name}.csv"
+		output = f"output_{session_name}.csv"
 
 	if events_only:
 		logger.info(f"Exporting events only for session '{session_name}' to '{output}'")
+
+	session_path = os.path.join("data", session_name)
+ 
+	if not os.path.exists(session_path):
+		logger.error(f"Session '{session_name}' folder does not exist.")
+		return
+
+	# Load the SQL database
+	
+	db = DatabaseStorage(Project(session_name, None, None, None, is_temp=False))
     
-	pass
+	print(db.get_latest_frame_number())
+    
+	return None

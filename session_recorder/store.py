@@ -78,7 +78,7 @@ class DatabaseStorage:
         Initialize the connection to the SQLite database using SQLAlchemy connection pooling.
         """
         logger.info("Initializing database engine with connection pooling...")
-        self.db_path = project.database_path
+        self.db_path = project.session_database_path
 
         db_url = f"sqlite:///{self.db_path}"
 
@@ -243,156 +243,193 @@ class Project:
     docker_container: The docker container id to connect to.
     is_temp: Whether the project is temporary or not. Creates a temp dir (used primarily for testing purposes)
     """
-
-    def __init__(
-        self,
-        session_name=None,
-        target=None,
-        device_logpath=None,
-        docker_container=None,
-        is_temp=False,
-    ):
-        self.config = self.init_config()
-        self.config["data"]["session_name"] = self.ensure_safe_name(session_name)
-        self.data = self.config["data"]
-        self.is_temp = is_temp
-        self.project_folder = self.setup_project_files(
-            self.data["session_name"], self.data["data_dir"]
-        )
-        self.database_path = os.path.join(self.project_folder, "session_data.db")
-        self.logfile_path = os.path.join(self.project_folder, "debug_session.logs")
-
-        # Get ssh details
-        self.host, self.user, self.port, self.password = self.get_ssh_config(target)
-        self.log_path = device_logpath
-        self.docker_container = docker_container
-
-        # Determine tail type
-        # If logpath is provided, use file tailing
-        # If docker_container is provided, use docker tailing
-        # If neither is provided, use no tailing
-        #    This will disable the tailing feature.
-        if self.log_path:
-            self.tail_type = "file"
-        elif self.docker_container:
-            self.tail_type = "docker"
-        else:
-            logger.warning(
-                "No log path or docker container provided. Disabling tailing feature."
-            )
-            self.tail_type = None
-
-        # This will save the project data to the project folder
-        self.save_project_data()
-
-    def __str__(self):
-        return f"""
-        Project Name: {self.data['session_name']}
-        Project Folder: {self.project_folder}
-        Database Path: {self.database_path}
-        Logfile Path: {self.logfile_path}
-        Is Temp?: {self.is_temp}
-        SSH Host: {self.host}
-        SSH User: {self.user}
-        SSH Port: {self.port}
-        SSH Password: {self.password}
-        Log Path: {self.log_path}
-        Docker Container: {self.docker_container}
-        Tail Type: {self.tail_type}
-        """
-
-    def init_config(self, config="config.yml"):
-        with open("config.yml", "r") as file:
-            config = yaml.safe_load(file)
-            if not config:
-                # TODO: Maybe create a default config file if none is found?
-                logger.error("No config file found at 'config.yml'. Please create one.")
-                sys.exit(1)
-        return config
-
-    def setup_project_files(self, session_name="session", data_folder="data"):
-        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
-
-        project_folder = f"{timestamp}_{session_name}"
-
-        if data_folder:
-            project_folder = os.path.join(data_folder, project_folder)
-
-        if self.is_temp:
-            logger.warning(
-                "Running in testing mode. Data will be stored in a temporary directory."
-            )
-            temp_dir = "tests/temp"
-            os.makedirs(temp_dir, exist_ok=True)  # Ensure the temp directory exists
-            project_folder = tempfile.mkdtemp(
-                prefix=f"{timestamp}_{session_name}", dir=temp_dir
-            )
-        else:
-            os.makedirs(project_folder, exist_ok=True)
-
-        return project_folder
-
-    def get_ssh_config(self, target: String = None):
-        host = self.config["device"].get("host", None)
-        user = self.config["device"].get("user", None)
-        port = self.config["device"].get("port", None)
-        # TODO: If this is missing? Should we prompt for it?
-        password = self.config["device"].get("password", None)
-
-        # TODO: Test for valid target format
-        if self.is_valid_target_host(target):
-            host = target.split("@")[1].split(":")[0]
-            user = target.split("@")[0]
-            port = target.split(":")[1]
-
-        if host is None or user is None or port is None or password is None:
-            raise ValueError(
-                "Missing SSH configuration. Please check your config file."
-            )
-            sys.exit(1)
-
-        return host, user, port, password
-
-    def ensure_safe_name(self, name):
-        return re.sub(r"[^a-zA-Z0-9_]", "_", name)
-
-    def is_valid_target_host(self, target):
-        # Ensures the target is valid string format (user@host:port)
-        # Will raise error if not valid.
-        if target is None:
-            return False
-
-        regex_pattern = r"^[a-zA-Z0-9_]+@[a-zA-Z0-9_]+:[0-9]+$"
-        if not re.match(regex_pattern, target):
-            raise ValueError(
-                "Invalid target format. Please use the format 'user@host:port'."
-            )
-            sys.exit(1)
-
-        return target
-
-    def get_project_data_as_dict(self):
+    def __init__(self):
+        # Project information
+        self.data_directory: String = "data" # Default data directory where each session is stored
+        
+        # Session information
+        self.is_temp: bool = False
+        self.existing_session: bool = False
+        self.session_name: String = "session"
+        self.session_folder: String = None
+        self.session_database_path: String = None
+        self.session_cli_logs_path: String = None
+        self.session_timestamp: datetime = datetime.now(timezone.utc)
+        
+        # Target device information
+        self.target_tail_log_path: String = None
+        self.target_tail_docker_container: String = None
+        self.target_tail_type: String = None
+        self.target_host: String = "localhost"
+        self.target_user: String = "iw"
+        self.target_port: Integer = 22
+        self.target_password: String = "inno2018"
+        
+        # Vicon Data
+        self.vicon_host: String = "127.0.0.1"
+        self.vicon_port: Integer = 51001
+        
+        
+        
+    def serialize(self):
         return {
-            "session_name": self.data["session_name"],
-            "project_folder": self.project_folder,
-            "database_path": self.database_path,
-            "logfile_path": self.logfile_path,
-            "is_temp": self.is_temp,
-            "host": self.host,
-            "user": self.user,
-            "port": self.port,
-            "password": self.password,
-            "log_path": self.log_path,
-            "docker_container": self.docker_container,
-            "tail_type": self.tail_type,
-            "started_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+            "vicon": {
+                "host": self.vicon_host,
+                "port": self.vicon_port
+            },
+            "target": {
+                "log_path": self.target_log_path,
+                "docker_container": self.target_docker_container,
+                "host": self.target_host,
+                "user": self.target_user,
+                "port": self.target_port,
+                "password": self.target_password,
+                "tail_type": self.target_tail_type
+            },
+            "session": {
+                "name": self.session_name,
+                "folder": self.session_folder,
+                "database_path": self.session_database_path,
+                "cli_logs_path": self.session_cli_logs_path,
+                "timestamp": self.session_timestamp,
+                "is_temp": self.is_temp
+            },
+            "data_directory": self.data_directory
         }
-
-    # TODO: Save this project data to a table within the SQLite database.
-    def save_project_data(self):
-        with open(os.path.join(self.project_folder, "project_data.json"), "w") as file:
-            json.dump(self.get_project_data_as_dict(), file, indent=4)
-
-    # TODO: Save this session details to a file for later review.
-    def save_session(self):
-        pass
+    
+    def deserialize(self, data):
+        self.vicon_host = data["vicon"]["host"]
+        self.vicon_port = data["vicon"]["port"]
+        self.target_log_path = data["target"]["log_path"]
+        self.target_docker_container = data["target"]["docker_container"]
+        self.target_host = data["target"]["host"]
+        self.target_user = data["target"]["user"]
+        self.target_port = data["target"]["port"]
+        self.target_password = data["target"]["password"]
+        self.target_tail_type = data["target"]["tail_type"]
+        self.session_name = data["session"]["name"]
+        self.session_folder = data["session"]["folder"]
+        self.session_database_path = data["session"]["database_path"]
+        self.session_cli_logs_path = data["session"]["cli_logs_path"]
+        self.session_timestamp = data["session"]["timestamp"]
+        self.is_temp = data["session"]["is_temp"]
+        self.data_directory = data["data_directory"]
+        
+    def load_session(self, session_name):
+        """Load an existing session from disk."""
+        session_path = os.path.join(self.data_directory, session_name)
+        if not os.path.exists(session_path):
+            logger.error(f"session '{session_name}' does not exist.")
+            return False
+        
+        session_file = os.path.join(session_path, "session.yml")
+        if not os.path.exists(session_file):
+            logger.error(f"session file '{session_file}' does not exist.")
+            return False
+        
+        with open(session_file, "r") as f:
+            session_data = yaml.safe_load(f)
+            self.deserialize(session_data)
+        
+        self.existing_session = True
+        return True
+    
+    def save_session(self, session_folder):
+        """Save the session to disk."""
+        
+        session_file = os.path.join(session_folder, "session.yml")
+        with open(session_file, "w") as f:
+            yaml.dump(self.serialize(), f)
+        
+        return session_file
+        
+        
+    def create(self, session_name, target=None, target_log_path=None, target_docker_container=None, is_temp=False):
+        """Create a new project, including all it's folders and files."""
+        
+        self.is_temp = is_temp
+        self.session_name = session_name
+        
+        # Set the target SSH information
+        if target:
+            self.__setup_target_ssh__(target)
+        
+        # Setup the project folders
+        self.__setup_session_folder__()
+        
+        # Setup logger targets
+        self.__setup_tail_details__(target_log_path, target_docker_container)
+        
+        self.session_database_path = os.path.join(self.session_folder, "session.db")
+        self.session_cli_logs_path = os.path.join(self.session_folder, "debug.logs")
+        
+        
+        
+    def __setup_target_ssh__(self, target):
+        """
+        # Setup the target SSH information.
+        
+        The target is in the format of user@host:port.
+        
+        will take any combination 
+        """
+        regex_pattern = r"^(?:(?P<user>\w+)@)?(?P<host>[\w\.\-]+)(?::(?P<port>\d+))?$"
+        match = re.search(regex_pattern, target)
+        
+        if match:
+            match_dict = match.groupdict()
+            print(match_dict)
+        else:
+            raise ValueError(f"Invalid target format: {target}")
+        
+        if match_dict.get("user") is not None:
+            self.target_user = match_dict.get("user", self.target_user)
+            
+        if match_dict.get("host") is not None:
+            self.target_host = match_dict.get("host", self.target_host)
+        
+        if match_dict.get("port") is not None:
+            self.target_port = int(match_dict.get("port", self.target_port))
+        
+        logger.debug(f"Target SSH: {self.target_user} @ {self.target_host} : {self.target_port}")
+        
+        
+        
+    def __setup_session_folder__(self):
+        """
+        # Setup a new session folder.
+        
+        If the project is temporary, create a temporary directory. This is used primarily for testing purposes.
+        """
+        timestamp_string = self.session_timestamp.strftime("%Y-%m-%d_%H-%M-%S")
+        session_folder = f"{timestamp_string}_{self.session_name}"
+        session_path = os.path.join(self.data_directory, session_folder)
+        
+        # If the project is temporary, create a temporary directory
+        if self.is_temp:
+            session_path = tempfile.mkdtemp(timestamp_string)
+        
+        if not os.path.exists(session_path):
+            os.makedirs(session_path)
+            
+        self.session_folder = session_path
+        return session_path
+    
+    def __setup_tail_details__(self, target_log_path, target_docker_container):
+        """
+        # Setup the tail details for the target device.
+        
+        The target device log path and docker container id are set here.
+        """
+        self.target_log_path = target_log_path
+        self.target_docker_container = target_docker_container
+        
+        if self.target_log_path:
+            self.target_tail_type = "log"
+        elif self.target_docker_container:
+            self.target_tail_type = "docker"
+        else:
+            logger.error("No target log path or docker container provided. Continuing without tailing.")
+            return False
+        
+        return self.target_log_path, self.target_docker_container
