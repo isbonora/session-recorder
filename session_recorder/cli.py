@@ -124,3 +124,27 @@ def list():
 
     else:
         print("No sessions recordings found in data directory.")
+
+
+@cli.command(name="export")
+@click.argument("session_name")
+@click.option(
+    "-o",
+    "--output",
+    help="Output file path. If not provided, will default to session_name.csv",
+)
+@click.option(
+    "-e",
+    "--events-only",
+    is_flag=True,
+)
+def export(session_name, output=None, events_only=False):
+	"""Export a session to a CSV file (DOESNT WORK YET)"""
+ 
+	if not output:
+		output = f"{session_name}.csv"
+
+	if events_only:
+		logger.info(f"Exporting events only for session '{session_name}' to '{output}'")
+    
+	pass
