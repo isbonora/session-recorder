@@ -81,6 +81,8 @@ class RemoteLogTailer:
                     connect_kwargs={"password": self.password, "look_for_keys": False},
                     connect_timeout=3,
                 )
+                
+                # FIXME: This is being weird and prints even though it didn't connect?
                 logger.info(f"Successfully connected to {self.host}.")
                 return True
             except (SSHException, TimeoutError, ConnectionError, UnexpectedExit) as e:
@@ -113,9 +115,6 @@ class RemoteLogTailer:
                 if self.conn:
                     logger.info(f"Running '{command}'...")
                     with self.conn as c:
-                        # if not c.is_connected:
-                        #     raise ConnectionError("SSH connection was lost and is not established.")
-                        # TODO: Handle Docker logs -f command
                         cfo = LogHandler(self.db)
                         c.run(command, hide=False, pty=True, warn=True, out_stream=cfo)
                         logger.error("Tail command finished. Do something here.")
@@ -190,6 +189,7 @@ class RemoteLogTailer:
 
             finally:
                 time.sleep(self.heartbeat_interval)
+                
         # It should never reach here.
         logger.error("Heartbeat thread stopped.")
 
@@ -223,7 +223,7 @@ class RemoteLogTailer:
 
         logger.info("Started log tailing and heartbeat threads.")
 
-    def stop(self):
+    def stop_threads(self):
         """
         Stops the log tailing and heartbeat operations.
         """
@@ -235,7 +235,7 @@ class RemoteLogTailer:
             self.heartbeat_thread.join()
         if self.conn:
             self.conn.close()
-        logger.info("Log tailing and heartbeat threads stopped.")
+        logger.warning("Log tailing and heartbeat threads stopped.")
 
 
 class Log:
@@ -376,6 +376,7 @@ class LogHandler:
 
         if not log_features:
             logger.warning(f"Could not parse log line: {clean_line}")
+            # TODO: Parse order messages
             return None
 
         # Fixes a scenario where the level is not set

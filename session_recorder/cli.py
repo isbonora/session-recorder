@@ -2,6 +2,7 @@ import click
 from loguru import logger
 import time
 import os
+import sys
 
 from session_recorder.device import RemoteLogTailer
 from session_recorder.store import DatabaseStorage, Project
@@ -9,6 +10,7 @@ from session_recorder.receiver import UDPPacketReceiver
 import json
 import tabulate
 
+logger.remove()
 
 @click.group()
 @click.version_option()
@@ -46,11 +48,13 @@ def record(target, logpath=None, docker_container=None, session_name=None, verbo
     project.create(session_name, target, logpath, docker_container, is_temp=False)
     db = DatabaseStorage(project)
 
+    # TODO: Move to a seperate function to setup logging
     log_level = "DEBUG" if verbose else "INFO"
+    logger.add(sys.stdout, colorize=True, format="<green>{time}</green> <level>{level} - {message}</level>", level=log_level)
     logger.add(
-        project.session_cli_logs_path, rotation="100 MB", retention="10 days", level=log_level
+        project.session_cli_logs_path, rotation="100 MB", retention="10 days", level="DEBUG"
     )
-
+    
     log_tailer = None
 
     # UDP Receiver Thread setup
@@ -74,19 +78,23 @@ def record(target, logpath=None, docker_container=None, session_name=None, verbo
         log_tailer.start_threads()
 
     # Simulating main program loop
+    # TODO: Put more information here. Maybe a status of the threads
     try:
         while True:
-            # Print the status of log thread if it's running
-            if log_tailer:
-                logger.debug(
-                    f"Log Thread {log_tailer.log_thread.is_alive()}, Heartbeat Thread: {log_tailer.heartbeat_thread.is_alive()}"
-                )
-
-            # Main program continues with other tasks
-            time.sleep(10)
-
+            time.sleep(1)
+            continue
     except KeyboardInterrupt:
-        logger.info("Main thread interrupted. Exiting...")
+        logger.warning
+        logger.warning("KeyboardInterrupt Received! Exiting...")
+        udp_receiver.stop()
+        if log_tailer:
+            log_tailer.stop_threads()
+        
+        logger.debug("Closing database...")
+        db.close()
+            
+        sys.exit(0)
+        
 
 
 @cli.command(name="ls")

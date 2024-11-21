@@ -67,7 +67,7 @@ class UDPPacketReceiver:
 
     # Stop the listener
     def stop(self):
-        logger.info("Stopping UDP listener...")
+        logger.warning("Stopping UDP listener...")
         self.running = False
         self.thread.join()
         self.reporting_thread.join()

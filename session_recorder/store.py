@@ -7,18 +7,16 @@ from sqlalchemy import (
     TIMESTAMP,
     ForeignKey,
     Text,
-    text
+    text,
 )
 from sqlalchemy.orm import sessionmaker, scoped_session, declarative_base
 from typing import List
 from loguru import logger
 from datetime import datetime, timezone
-import json
 import yaml
 import os
 import tempfile
 import re
-import sys
 
 from session_recorder.receiver import TrackerObject
 
@@ -89,7 +87,7 @@ class DatabaseStorage:
             pool_size=5,  # Connection pool size
             max_overflow=10,
         )  # Allow additional connections beyond pool size
-        
+
         # Enable WAL mode
         with self.engine.connect() as connection:
             connection.execute(text("PRAGMA journal_mode=WAL"))
@@ -239,6 +237,13 @@ class DatabaseStorage:
         finally:
             session.close()
 
+    def close(self):
+        """
+        Close the database connection.
+        """
+        self.engine.dispose()
+        logger.info("Closed database connection.")
+
 
 class Project:
     """
@@ -249,10 +254,13 @@ class Project:
     docker_container: The docker container id to connect to.
     is_temp: Whether the project is temporary or not. Creates a temp dir (used primarily for testing purposes)
     """
+
     def __init__(self):
         # Project information
-        self.data_directory: String = "data" # Default data directory where each session is stored
-        
+        self.data_directory: String = (
+            "data"  # Default data directory where each session is stored
+        )
+
         # Session information
         self.is_temp: bool = False
         self.existing_session: bool = False
@@ -261,7 +269,7 @@ class Project:
         self.session_database_path: String = None
         self.session_cli_logs_path: String = None
         self.session_timestamp: datetime = datetime.now(timezone.utc)
-        
+
         # Target device information
         self.target_tail_log_path: String = None
         self.target_tail_docker_container: String = None
@@ -269,20 +277,15 @@ class Project:
         self.target_host: String = "localhost"
         self.target_user: String = "iw"
         self.target_port: Integer = 22
-        self.target_password: String = "inno2018"
-        
+        self.target_password: String = "password"
+
         # Vicon Data
         self.vicon_host: String = "127.0.0.1"
         self.vicon_port: Integer = 51001
-        
-        
-        
+
     def serialize(self):
         return {
-            "vicon": {
-                "host": self.vicon_host,
-                "port": self.vicon_port
-            },
+            "vicon": {"host": self.vicon_host, "port": self.vicon_port},
             "target": {
                 "log_path": self.target_log_path,
                 "docker_container": self.target_docker_container,
@@ -290,7 +293,7 @@ class Project:
                 "user": self.target_user,
                 "port": self.target_port,
                 "password": self.target_password,
-                "tail_type": self.target_tail_type
+                "tail_type": self.target_tail_type,
             },
             "session": {
                 "name": self.session_name,
@@ -298,11 +301,11 @@ class Project:
                 "database_path": self.session_database_path,
                 "cli_logs_path": self.session_cli_logs_path,
                 "timestamp": self.session_timestamp,
-                "is_temp": self.is_temp
+                "is_temp": self.is_temp,
             },
-            "data_directory": self.data_directory
+            "data_directory": self.data_directory,
         }
-    
+
     def deserialize(self, data):
         self.vicon_host = data["vicon"]["host"]
         self.vicon_port = data["vicon"]["port"]
@@ -320,128 +323,135 @@ class Project:
         self.session_timestamp = data["session"]["timestamp"]
         self.is_temp = data["session"]["is_temp"]
         self.data_directory = data["data_directory"]
-        
+
     def load_session(self, session_name):
         """Load an existing session from disk."""
         session_path = os.path.join(self.data_directory, session_name)
         if not os.path.exists(session_path):
             logger.error(f"session '{session_name}' does not exist.")
             return False
-        
+
         session_file = os.path.join(session_path, "session.yml")
         if not os.path.exists(session_file):
             logger.error(f"session file '{session_file}' does not exist.")
             return False
-        
+
         with open(session_file, "r") as f:
             session_data = yaml.safe_load(f)
             self.deserialize(session_data)
-        
+
         self.existing_session = True
         return True
-    
+
     def save_session(self, session_folder):
         """Save the session to disk."""
-        
+
         session_file = os.path.join(session_folder, "session.yml")
         with open(session_file, "w") as f:
             yaml.dump(self.serialize(), f)
-        
+
         return session_file
-        
-        
-    def create(self, session_name, target=None, target_log_path=None, target_docker_container=None, is_temp=False):
+
+    def create(
+        self,
+        session_name,
+        target=None,
+        target_log_path=None,
+        target_docker_container=None,
+        is_temp=False,
+    ):
         """Create a new project, including all it's folders and files."""
-        
+
         self.is_temp = is_temp
         self.session_name = self.__clean_session_name__(session_name)
-        
+
         # Set the target SSH information
         if target:
             self.__setup_target_ssh__(target)
-        
+
         # Setup the project folders
         self.__setup_session_folder__()
-        
+
         # Setup logger targets
         self.__setup_tail_details__(target_log_path, target_docker_container)
-        
+
         self.session_database_path = os.path.join(self.session_folder, "session.db")
         self.session_cli_logs_path = os.path.join(self.session_folder, "debug.logs")
-        
+
     def __clean_session_name__(self, session_name):
         """
         # Clean the session name.
-        
+
         Replaces spaces and slashes with underscores.
         """
         return re.sub(r"[ /]", "_", session_name)
-        
+
     def __setup_target_ssh__(self, target):
         """
         # Setup the target SSH information.
-        
+
         The target is in the format of user@host:port.
-        
-        will take any combination 
+
+        will take any combination
         """
         regex_pattern = r"^(?:(?P<user>\w+)@)?(?P<host>[\w\.\-]+)(?::(?P<port>\d+))?$"
         match = re.search(regex_pattern, target)
-        
+
         if match:
             match_dict = match.groupdict()
-            print(match_dict)
         else:
             raise ValueError(f"Invalid target format: {target}")
-        
+
         if match_dict.get("user") is not None:
             self.target_user = match_dict.get("user", self.target_user)
-            
+
         if match_dict.get("host") is not None:
             self.target_host = match_dict.get("host", self.target_host)
-        
+
         if match_dict.get("port") is not None:
             self.target_port = int(match_dict.get("port", self.target_port))
-        
-        logger.debug(f"Target SSH: {self.target_user} @ {self.target_host} : {self.target_port}")
-        
-        
-        
+
+        logger.debug(
+            f"Target SSH: {self.target_user} @ {self.target_host} : {self.target_port}"
+        )
+
     def __setup_session_folder__(self):
         """
         # Setup a new session folder.
-        
+
         If the project is temporary, create a temporary directory. This is used primarily for testing purposes.
         """
         timestamp_string = self.session_timestamp.strftime("%Y-%m-%d_%H-%M-%S")
         session_folder = f"{timestamp_string}_{self.session_name}"
         session_path = os.path.join(self.data_directory, session_folder)
-        
+
         # If the project is temporary, create a temporary directory
         if self.is_temp:
             session_path = tempfile.mkdtemp(timestamp_string)
-        
+
         if not os.path.exists(session_path):
             os.makedirs(session_path)
-            
+
         self.session_folder = session_path
         return session_path
-    
+
     def __setup_tail_details__(self, target_log_path, target_docker_container):
         """
         # Setup the tail details for the target device.
-        
+
         The target device log path and docker container id are set here.
         """
         self.target_log_path = target_log_path
         self.target_docker_container = target_docker_container
-        
+
         if self.target_log_path:
             self.target_tail_type = "log"
         elif self.target_docker_container:
             self.target_tail_type = "docker"
         else:
-            logger.error("No target log path or docker container provided. Continuing without tailing.")
+            logger.error(
+                "No target log path or docker container provided. Continuing without tailing."
+            )
             return False
-        
+
         return self.target_log_path, self.target_docker_container
