@@ -33,7 +33,7 @@ def cli():
     "--docker-container",
     help="Which docker container to tail (exclusive with --logpath)",
 )
-@click.verbose(
+@click.option(
     "-v",
     "--verbose",
     is_flag=True,
