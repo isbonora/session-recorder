@@ -33,17 +33,27 @@ def cli():
     "--docker-container",
     help="Which docker container to tail (exclusive with --logpath)",
 )
-def record(target, logpath=None, docker_container=None, session_name=None):
+@click.verbose(
+    "-v",
+    "--verbose",
+    is_flag=True,
+    help="Enable verbose logging (Debug level)",
+)
+def record(target, logpath=None, docker_container=None, session_name=None, verbose=False):
     """Begin recording a session"""
     
     project = Project()
     project.create(session_name, target, logpath, docker_container, is_temp=False)
-    print(project)
     db = DatabaseStorage(project)
 
-    logger.add(
-        project.session_cli_logs_path, rotation="100 MB", retention="10 days", level="DEBUG"
-    )
+    if verbose:
+        logger.add(
+            project.session_cli_logs_path, rotation="100 MB", retention="10 days", level="DEBUG"
+        )
+    else:
+        logger.add(
+            project.session_cli_logs_path, rotation="100 MB", retention="10 days", level="INFO"
+        )
 
     log_tailer = None
 

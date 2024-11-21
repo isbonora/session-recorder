@@ -196,7 +196,7 @@ class DatabaseStorage:
             )
             session.add(log)
             session.commit()
-            logger.info(f"Inserted Log at {timestamp} for Frame ID {frame_id}.")
+            logger.debug(f"Inserted Log at {timestamp} for Frame ID {frame_id}.")
         except Exception as e:
             logger.error(f"Error inserting log: {e}")
             session.rollback()
@@ -211,7 +211,7 @@ class DatabaseStorage:
         try:
             log = session.query(Log).order_by(Log.log_id.desc()).first()
             if log:
-                logger.info(f"Latest Log: {log.message}")
+                logger.debug(f"Latest Log: {log.message}")
             return log
         except Exception as e:
             logger.error(f"Error getting latest log: {e}")

@@ -306,7 +306,7 @@ class LogHandler:
         """
 
         # print string length in bytes
-        logger.info(f"Received {len(string)} bytes of data")
+        logger.debug(f"Received {len(string)} bytes of data")
 
         # Combine the partial line with the new string
         string = self.partial_line + string
@@ -373,8 +373,6 @@ class LogHandler:
         clean_line = self.remove_ansi_colors(line).strip()
 
         log_features = self.extract_log_features(clean_line)
-
-        logger.debug(log_features)
 
         if not log_features:
             logger.warning(f"Could not parse log line: {clean_line}")

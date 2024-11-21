@@ -97,6 +97,7 @@ class UDPPacketReceiver:
                     logger.info("Received first object from Vicon Tracker!")
                     self.last_milestone_timestamp = datetime.now()
                 # TODO: Add a timeout here to stop the program if no data is received for a certain time
+                INTERVAL = 10
             else:
                 self.last_milestone_timestamp = datetime.now()
                 # FIXME: This value may not be accurate? in testing 200fps was reported at ~160fps
@@ -108,10 +109,6 @@ class UDPPacketReceiver:
                 # This weird logic here stops printing a log with invalid data.
                 # we want to wait for the system to settle after getting the first frame
                 if INTERVAL == 10:
-                    logger.trace(
-                        f"Received {self.count} {self.last_count_reported} ({average_fps:.2f} fps avg) frames so far..."
-                    )
-                    
                     logger.info(
                         f"Received {self.count} ({average_fps} fps avg) frames so far..."
                     )
@@ -121,7 +118,6 @@ class UDPPacketReceiver:
                             "FPS is too low. Vicon may have stopped sending frames?"
                         )
 
-                INTERVAL = 10
 
             # Wait for the next interval
             # This is a blocking call, so the thread will sleep for the specified time
