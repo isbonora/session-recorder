@@ -78,6 +78,8 @@ class UDPPacketReceiver:
         while self.running:
             data, addr = self.sock.recvfrom(1024)  # Buffer size
             frame_number, objects = self.process_packet(data)
+            
+            logger.trace(f"Received frame {frame_number} with {len(objects)} objects")
 
             if self.database:
                 self.database.insert_frame_objects(frame_number, objects)
@@ -99,12 +101,17 @@ class UDPPacketReceiver:
                 self.last_milestone_timestamp = datetime.now()
                 # FIXME: This value may not be accurate? in testing 200fps was reported at ~160fps
                 average_fps = (self.count - self.last_count_reported) / INTERVAL
+                
 
                 self.last_count_reported = self.count
 
                 # This weird logic here stops printing a log with invalid data.
                 # we want to wait for the system to settle after getting the first frame
                 if INTERVAL == 10:
+                    logger.trace(
+                        f"Received {self.count} {self.last_count_reported} ({average_fps:.2f} fps avg) frames so far..."
+                    )
+                    
                     logger.info(
                         f"Received {self.count} ({average_fps} fps avg) frames so far..."
                     )
