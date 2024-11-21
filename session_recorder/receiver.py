@@ -97,12 +97,12 @@ class UDPPacketReceiver:
                     logger.info("Received first object from Vicon Tracker!")
                     self.last_milestone_timestamp = datetime.now()
                 # TODO: Add a timeout here to stop the program if no data is received for a certain time
-                INTERVAL = 10
             else:
                 self.last_milestone_timestamp = datetime.now()
                 # FIXME: This value may not be accurate? in testing 200fps was reported at ~160fps
                 average_fps = (self.count - self.last_count_reported) / INTERVAL
                 
+                INTERVAL = 10
 
                 self.last_count_reported = self.count
 

@@ -7,6 +7,7 @@ from sqlalchemy import (
     TIMESTAMP,
     ForeignKey,
     Text,
+    text
 )
 from sqlalchemy.orm import sessionmaker, scoped_session, declarative_base
 from typing import List
@@ -88,6 +89,11 @@ class DatabaseStorage:
             pool_size=5,  # Connection pool size
             max_overflow=10,
         )  # Allow additional connections beyond pool size
+        
+        # Enable WAL mode
+        with self.engine.connect() as connection:
+            connection.execute(text("PRAGMA journal_mode=WAL"))
+            logger.warning("Enabled WAL mode for database.")
 
         # Create tables if they do not already exist
         Base.metadata.create_all(self.engine)
