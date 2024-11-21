@@ -17,7 +17,7 @@ def test_new_project_config_succesfully():
     project = Project()
     project.create(project_name, is_temp=True)
 
-    assert project.config["data"]["session_name"] == project_name
+    assert project.session_name == project_name
 
 def test_auto_make_safe_project_name_spaces():
     project_name_not_safe = "this is a test"
@@ -26,7 +26,7 @@ def test_auto_make_safe_project_name_spaces():
     project = Project()
     project.create(project_name_not_safe, is_temp=True)
 
-    assert project.config["data"]["session_name"] == project_name_safe
+    assert project.session_name == project_name_safe
 
 def test_auto_make_safe_project_name_slashes():
     project_name_not_safe = "this/is/a/test"
@@ -35,7 +35,7 @@ def test_auto_make_safe_project_name_slashes():
     project = Project()
     project.create(project_name_not_safe, is_temp=True)
 
-    assert project.config["data"]["session_name"] == project_name_safe
+    assert project.session_name == project_name_safe
 
 
 # Database

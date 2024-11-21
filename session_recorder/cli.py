@@ -35,12 +35,14 @@ def cli():
 )
 def record(target, logpath=None, docker_container=None, session_name=None):
     """Begin recording a session"""
+    
     project = Project()
-    project = project.create(session_name, target, logpath, docker_container, is_temp=False)
+    project.create(session_name, target, logpath, docker_container, is_temp=False)
+    print(project)
     db = DatabaseStorage(project)
 
     logger.add(
-        project.logfile_path, rotation="100 MB", retention="10 days", level="DEBUG"
+        project.session_cli_logs_path, rotation="100 MB", retention="10 days", level="DEBUG"
     )
 
     log_tailer = None
@@ -51,15 +53,15 @@ def record(target, logpath=None, docker_container=None, session_name=None):
     # Start the receiver in a separate thread
     udp_receiver.start()
 
-    if project.tail_type:
+    if project.target_tail_type:
         # Create the RemoteLogTailer instance
         log_tailer = RemoteLogTailer(
-            host=project.host,
-            user=project.user,
-            port=project.port,
-            password=project.password,
-            log_file=project.device_log_path,
-            docker_container=project.docker_container,
+            host=project.target_host,
+            user=project.target_user,
+            port=project.target_port,
+            password=project.target_password,
+            log_file=project.target_log_path,
+            docker_container=project.target_docker_container,
             db=db,
         )
         # Start the log tailing in a separate threads

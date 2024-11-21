@@ -263,7 +263,7 @@ class Project:
         self.target_host: String = "localhost"
         self.target_user: String = "iw"
         self.target_port: Integer = 22
-        self.target_password: String = "inno2018"
+        self.target_password: String = "password"
         
         # Vicon Data
         self.vicon_host: String = "127.0.0.1"
@@ -348,7 +348,7 @@ class Project:
         """Create a new project, including all it's folders and files."""
         
         self.is_temp = is_temp
-        self.session_name = session_name
+        self.session_name = self.__clean_session_name__(session_name)
         
         # Set the target SSH information
         if target:
@@ -363,7 +363,13 @@ class Project:
         self.session_database_path = os.path.join(self.session_folder, "session.db")
         self.session_cli_logs_path = os.path.join(self.session_folder, "debug.logs")
         
+    def __clean_session_name__(self, session_name):
+        """
+        # Clean the session name.
         
+        Replaces spaces and slashes with underscores.
+        """
+        return re.sub(r"[ /]", "_", session_name)
         
     def __setup_target_ssh__(self, target):
         """
