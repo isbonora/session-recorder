@@ -46,14 +46,10 @@ def record(target, logpath=None, docker_container=None, session_name=None, verbo
     project.create(session_name, target, logpath, docker_container, is_temp=False)
     db = DatabaseStorage(project)
 
-    if verbose:
-        logger.add(
-            project.session_cli_logs_path, rotation="100 MB", retention="10 days", level="DEBUG"
-        )
-    else:
-        logger.add(
-            project.session_cli_logs_path, rotation="100 MB", retention="10 days", level="INFO"
-        )
+    log_level = "DEBUG" if verbose else "INFO"
+    logger.add(
+        project.session_cli_logs_path, rotation="100 MB", retention="10 days", level=log_level
+    )
 
     log_tailer = None
 
