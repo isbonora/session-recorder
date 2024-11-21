@@ -84,13 +84,7 @@ def record(target, logpath=None, docker_container=None, session_name=None, verbo
             time.sleep(1)
             continue
     except KeyboardInterrupt:
-        logger.warning
         logger.warning("KeyboardInterrupt Received! Exiting...")
-        udp_receiver.stop()
-        if log_tailer:
-            log_tailer.stop_threads()
-        
-        logger.debug("Closing database...")
         db.close()
             
         sys.exit(0)

@@ -62,6 +62,8 @@ class RemoteLogTailer:
         # Holds the connection object
         self.conn = None
         self.tail_active = False
+        
+        self.stopping_all_threads = False
 
     def establish_connection(self):
         paramiko.util.log_to_file("paramiko_debug.log", level="DEBUG")
@@ -109,8 +111,10 @@ class RemoteLogTailer:
             logger.info(f"Running docker logs on {self.docker_container}")
             command = f"docker logs {self.docker_container} -f -t -n 100"
 
-        self.tail_active = True
         while self.tail_active:
+            if self.stopping_all_threads:
+                self.tail_active = False
+                return # Exit the thread
             try:
                 if self.conn:
                     logger.info(f"Running '{command}'...")
@@ -154,7 +158,11 @@ class RemoteLogTailer:
         Periodically checks the connection by running a lightweight command like 'echo'.
         If the command fails, it triggers a reconnection and resets the log tailing.
         """
+        
         while self.heartbeat_active:
+            if self.stopping_all_threads:
+                self.tail_active = False
+                return # Exit the thread
             try:
                 if self.conn:
                     logger.info("Sending heartbeat...")
@@ -199,6 +207,7 @@ class RemoteLogTailer:
         """
         if not self.tail_active:
             self.log_thread = None
+            self.tail_active = True
             self.log_thread = threading.Thread(target=self.run_tail_f_logs, daemon=True)
             self.log_thread.start()
 
@@ -213,6 +222,7 @@ class RemoteLogTailer:
             return
 
         # Start the log tailing thread
+        self.tail_active = True
         self.log_thread = threading.Thread(target=self.run_tail_f_logs, daemon=True)
         self.log_thread.start()
 
@@ -227,12 +237,13 @@ class RemoteLogTailer:
         """
         Stops the log tailing and heartbeat operations.
         """
+        self.stopping_all_threads = True
         self.heartbeat_active = False
         self.tail_active = False
-        if self.log_thread:
-            self.log_thread.join()
         if self.heartbeat_thread:
             self.heartbeat_thread.join()
+        if self.log_thread:
+            self.log_thread.join()
         if self.conn:
             self.conn.close()
         logger.warning("Log tailing and heartbeat threads stopped.")

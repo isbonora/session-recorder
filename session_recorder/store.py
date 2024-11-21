@@ -242,7 +242,7 @@ class DatabaseStorage:
         Close the database connection.
         """
         self.engine.dispose()
-        logger.info("Closed database connection.")
+        logger.warning("Closed database connection.")
 
 
 class Project:
