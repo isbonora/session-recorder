@@ -97,7 +97,11 @@ def list():
 
     data_path = "data"
 
-    sessions = os.listdir(data_path)
+    try:
+        sessions = os.listdir(data_path)
+    except FileNotFoundError:
+        logger.error("Data directory at '{data_path}' not found. Exiting...")
+        sys.exit(0)
 
     if sessions:
         table = []

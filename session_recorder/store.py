@@ -277,7 +277,8 @@ class Project:
         self.target_host: String = "localhost"
         self.target_user: String = "iw"
         self.target_port: Integer = 22
-        self.target_password: String = "password"
+        # TODO: Setup flag to choose password
+        self.target_password: String = "inno2018"
 
         # Vicon Data
         self.vicon_host: String = "127.0.0.1"

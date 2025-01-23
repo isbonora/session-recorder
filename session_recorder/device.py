@@ -62,7 +62,7 @@ class RemoteLogTailer:
         # Holds the connection object
         self.conn = None
         self.tail_active = False
-        
+
         self.stopping_all_threads = False
 
     def establish_connection(self):
@@ -83,7 +83,7 @@ class RemoteLogTailer:
                     connect_kwargs={"password": self.password, "look_for_keys": False},
                     connect_timeout=3,
                 )
-                
+
                 # FIXME: This is being weird and prints even though it didn't connect?
                 logger.info(f"Successfully connected to {self.host}.")
                 return True
@@ -114,7 +114,7 @@ class RemoteLogTailer:
         while self.tail_active:
             if self.stopping_all_threads:
                 self.tail_active = False
-                return # Exit the thread
+                return  # Exit the thread
             try:
                 if self.conn:
                     logger.info(f"Running '{command}'...")
@@ -158,11 +158,11 @@ class RemoteLogTailer:
         Periodically checks the connection by running a lightweight command like 'echo'.
         If the command fails, it triggers a reconnection and resets the log tailing.
         """
-        
+
         while self.heartbeat_active:
             if self.stopping_all_threads:
                 self.tail_active = False
-                return # Exit the thread
+                return  # Exit the thread
             try:
                 if self.conn:
                     logger.info("Sending heartbeat...")
@@ -197,7 +197,7 @@ class RemoteLogTailer:
 
             finally:
                 time.sleep(self.heartbeat_interval)
-                
+
         # It should never reach here.
         logger.error("Heartbeat thread stopped.")
 
@@ -276,6 +276,7 @@ class Log:
             f"message={self.message!r}, component={self.component!r})"
         )
 
+    # TODO: This command is written twice. Get rid of one
     def convert_to_datetime(self, timestamp):
         """
         Convert a timestamp string to a datetime object.
