@@ -5,10 +5,18 @@
 [![Tests](https://github.com/isbonora/session-recorder/actions/workflows/test.yml/badge.svg)](https://github.com/isbonora/session-recorder/actions/workflows/test.yml)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](https://github.com/isbonora/session-recorder/blob/master/LICENSE)
 
-The Vicon session recorder captures two sets of date in realtime: 1. from a ROS2 device such as [idealworks' iw.hub](https://idealworks.com/en/iw-hub-e/) using a ssh connection with the `tail -f` command. 2. [Vicon Tracker UDP stream](https://help.vicon.com/space/Tracker42/258310768/Stream+object+data+over+a+UDP+broadcast+connection) that includes object translation & rotation data. The data is then packaged in to a single file SQLite format with a simple schema that can be extracted at a later data and processed.
+The Vicon session recorder captures two sets of date in realtime: 
+
+1. from a ROS2 device such as [idealworks' iw.hub](https://idealworks.com/en/iw-hub-e/) using a ssh connection with the `tail -f` command.
+2. [Vicon Tracker UDP stream](https://help.vicon.com/space/Tracker42/258310768/Stream+object+data+over+a+UDP+broadcast+connection) that includes object translation & rotation data.
+
+The data is then packaged in to a single file SQLite format with a simple schema that can be extracted at a later data and processed.
 
 ![image](https://github.com/user-attachments/assets/47920202-866b-4038-bb31-146a32ec4434)
 
+Frustrations were found early on with the motion capture installation at idealworks, where we often had to guess, based on just positional data, what the device was doing in a session. The intention of this project is to alleviate pain points found in the setup phase and let users capture logs alongside accurate positional data for later analysis, filtering for specific events in ROS2 such as detection, lifting, or error states. This enables broader use cases with the Vicon motion capture system and an easier time generating repeatable results.
+
+---
 
 ## Installation
 
